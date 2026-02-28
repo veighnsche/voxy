@@ -1,0 +1,13 @@
+[package]
+name = "voxy-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Audio input abstraction and stubs for Voxy"
+readme = "README.md"
+keywords = ["audio", "capture", "abstraction", "stt"]
+
+[dependencies]

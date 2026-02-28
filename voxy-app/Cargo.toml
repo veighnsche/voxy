@@ -1,0 +1,19 @@
+[package]
+name = "voxy-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "GTK4 desktop shell for Voxy live transcription"
+readme = "README.md"
+keywords = ["gtk4", "stt", "transcription", "wayland"]
+publish = false
+
+[dependencies]
+gtk4.workspace = true
+tokio.workspace = true
+voxy-audio.workspace = true
+voxy-core.workspace = true
+voxy-stt.workspace = true

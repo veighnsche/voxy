@@ -1,0 +1,15 @@
+[package]
+name = "voxy-stt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Streaming transcriber abstraction and stubs for Voxy"
+readme = "README.md"
+keywords = ["stt", "streaming", "tokio", "transcription"]
+
+[dependencies]
+tokio.workspace = true
+voxy-core.workspace = true
