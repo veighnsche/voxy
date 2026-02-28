@@ -12,6 +12,8 @@ This document describes non-audio wiring inside `voxy-app`.
     - `surface/`
       - `layer_shell.rs`: Wayland layer-shell setup and capability checks
       - `placement.rs`: anchored margin placement helpers
+    - `resize/`
+      - `gesture.rs`: bottom-right resize handle drag wiring
     - `visibility/`
       - `close_request.rs`: close request policy (`close -> hide`)
       - `window_visibility.rs`: show/hide helpers
@@ -23,7 +25,7 @@ This document describes non-audio wiring inside `voxy-app`.
   - `error_path.rs`: explicit helper for mapping runtime failures into `AppState::Error`
 - `voxy-app/src/tray/`
   - `status_notifier.rs`: StatusNotifier (system tray) adapter
-  - `menu.rs`: tray menu actions (`Show/Hide`, `Reset`, `Quit`)
+  - `menu.rs`: tray menu actions (`Show/Hide`, `Reset`, `Size +`, `Size -`, `Quit`)
   - `mod.rs`: tray runtime lifecycle
 - `voxy-app/src/wiring/`
   - `runtime.rs`: Tokio runtime construction

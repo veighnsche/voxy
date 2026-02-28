@@ -18,6 +18,18 @@ pub(super) fn build_menu_items() -> Vec<MenuItem<VoxyTray>> {
         }
         .into(),
         StandardItem {
+            label: "Size +".to_owned(),
+            activate: Box::new(|tray: &mut VoxyTray| tray.emit(AppEvent::WindowLargerRequested)),
+            ..Default::default()
+        }
+        .into(),
+        StandardItem {
+            label: "Size -".to_owned(),
+            activate: Box::new(|tray: &mut VoxyTray| tray.emit(AppEvent::WindowSmallerRequested)),
+            ..Default::default()
+        }
+        .into(),
+        StandardItem {
             label: "Quit".to_owned(),
             activate: Box::new(|tray: &mut VoxyTray| tray.emit(AppEvent::QuitRequested)),
             ..Default::default()

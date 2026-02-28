@@ -3,6 +3,8 @@ pub struct UiPrefs {
     pub visible: bool,
     pub window_left: i32,
     pub window_top: i32,
+    pub window_width: i32,
+    pub window_height: i32,
 }
 
 impl Default for UiPrefs {
@@ -11,6 +13,8 @@ impl Default for UiPrefs {
             visible: true,
             window_left: 24,
             window_top: 24,
+            window_width: 360,
+            window_height: 420,
         }
     }
 }

@@ -165,6 +165,9 @@ impl CommandBus {
             CoreCommand::HideWindow => {
                 behavior::visibility::window_visibility::hide_window(&self.window)
             }
+            CoreCommand::ResizeWindow { width, height } => {
+                self.window.set_default_size(width, height);
+            }
             CoreCommand::CopyTextToClipboard(text) => {
                 behavior::system::clipboard::copy_text_to_clipboard(&self.window, &text);
                 self.emit_log_message("Transcript copied to clipboard");

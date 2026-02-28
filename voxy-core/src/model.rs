@@ -1,5 +1,11 @@
 use crate::{transition, AppEvent, AppState, BufferState, UiPrefs};
 
+const WINDOW_RESIZE_STEP: i32 = 40;
+const WINDOW_MIN_WIDTH: i32 = 280;
+const WINDOW_MIN_HEIGHT: i32 = 320;
+const WINDOW_MAX_WIDTH: i32 = 960;
+const WINDOW_MAX_HEIGHT: i32 = 1280;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreCommand {
     StartAudioInput,
@@ -11,6 +17,7 @@ pub enum CoreCommand {
     EmitEvent(AppEvent),
     ShowWindow,
     HideWindow,
+    ResizeWindow { width: i32, height: i32 },
     CopyTextToClipboard(String),
     InjectFixtureAudio(u8),
     QuitApplication,
@@ -44,6 +51,15 @@ impl CoreModel {
             AppEvent::ResetRequested => {
                 self.buffer.reset_all();
                 Vec::new()
+            }
+            AppEvent::WindowLargerRequested => {
+                self.resize_window_by(WINDOW_RESIZE_STEP, WINDOW_RESIZE_STEP)
+            }
+            AppEvent::WindowSmallerRequested => {
+                self.resize_window_by(-WINDOW_RESIZE_STEP, -WINDOW_RESIZE_STEP)
+            }
+            AppEvent::WindowResizeRequested { width, height } => {
+                self.resize_window_to(width, height)
             }
             AppEvent::LogMessage(message) => {
                 self.log_line = message;
@@ -98,6 +114,11 @@ impl CoreModel {
         self.ui_prefs.window_top = top.max(0);
     }
 
+    pub fn set_window_size(&mut self, width: i32, height: i32) {
+        self.ui_prefs.window_width = width.clamp(WINDOW_MIN_WIDTH, WINDOW_MAX_WIDTH);
+        self.ui_prefs.window_height = height.clamp(WINDOW_MIN_HEIGHT, WINDOW_MAX_HEIGHT);
+    }
+
     fn reduce_mic_toggle(&mut self) -> Vec<CoreCommand> {
         let previous = self.app_state.clone();
         self.app_state = transition(&self.app_state, &AppEvent::MicToggled);
@@ -140,6 +161,28 @@ impl CoreModel {
 
         self.ui_prefs.visible = false;
         vec![CoreCommand::HideWindow]
+    }
+
+    fn resize_window_by(&mut self, width_delta: i32, height_delta: i32) -> Vec<CoreCommand> {
+        let next_width = self.ui_prefs.window_width.saturating_add(width_delta);
+        let next_height = self.ui_prefs.window_height.saturating_add(height_delta);
+        self.set_window_size(next_width, next_height);
+        self.log_line = format!(
+            "Window resized to {}x{}",
+            self.ui_prefs.window_width, self.ui_prefs.window_height
+        );
+        vec![CoreCommand::ResizeWindow {
+            width: self.ui_prefs.window_width,
+            height: self.ui_prefs.window_height,
+        }]
+    }
+
+    fn resize_window_to(&mut self, width: i32, height: i32) -> Vec<CoreCommand> {
+        self.set_window_size(width, height);
+        vec![CoreCommand::ResizeWindow {
+            width: self.ui_prefs.window_width,
+            height: self.ui_prefs.window_height,
+        }]
     }
 }
 
@@ -330,5 +373,70 @@ mod tests {
 
         assert_eq!(model.ui_prefs.window_left, 0);
         assert_eq!(model.ui_prefs.window_top, 42);
+    }
+
+    #[test]
+    fn window_larger_requested_updates_prefs_and_emits_resize_command() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::WindowLargerRequested);
+
+        assert_eq!(model.ui_prefs.window_width, 400);
+        assert_eq!(model.ui_prefs.window_height, 460);
+        assert_eq!(
+            commands,
+            vec![CoreCommand::ResizeWindow {
+                width: 400,
+                height: 460
+            }]
+        );
+    }
+
+    #[test]
+    fn window_smaller_requested_clamps_to_minimum_size() {
+        let mut model = CoreModel::default();
+        model.set_window_size(280, 320);
+
+        let commands = model.reduce(AppEvent::WindowSmallerRequested);
+
+        assert_eq!(model.ui_prefs.window_width, 280);
+        assert_eq!(model.ui_prefs.window_height, 320);
+        assert_eq!(
+            commands,
+            vec![CoreCommand::ResizeWindow {
+                width: 280,
+                height: 320
+            }]
+        );
+    }
+
+    #[test]
+    fn window_resize_requested_is_clamped_and_emits_resize_command() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::WindowResizeRequested {
+            width: 100,
+            height: 2000,
+        });
+
+        assert_eq!(model.ui_prefs.window_width, 280);
+        assert_eq!(model.ui_prefs.window_height, 1280);
+        assert_eq!(
+            commands,
+            vec![CoreCommand::ResizeWindow {
+                width: 280,
+                height: 1280
+            }]
+        );
+    }
+
+    #[test]
+    fn window_size_updates_are_clamped_and_persisted() {
+        let mut model = CoreModel::default();
+
+        model.set_window_size(5, 9000);
+
+        assert_eq!(model.ui_prefs.window_width, 280);
+        assert_eq!(model.ui_prefs.window_height, 1280);
     }
 }

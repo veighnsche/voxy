@@ -37,7 +37,7 @@
 - `Processing + CommitRequested -> Idle`
 - `Any State + ResetRequested -> Idle` (except `Error` handling below)
 - `Error(_)` only leaves error state on `ResetRequested`
-- `RuntimeError(_)`, `ErrorCleared`, `LiveText(_)`, `CopyRequested`, `QuitRequested`, `ShowRequested`, `HideRequested`, and `VisibilityToggled` do not change `AppState`
+- `RuntimeError(_)`, `ErrorCleared`, `LiveText(_)`, `CopyRequested`, `QuitRequested`, `ShowRequested`, `HideRequested`, `VisibilityToggled`, `WindowLargerRequested`, `WindowSmallerRequested`, and `WindowResizeRequested { .. }` do not change `AppState`
 - `CommitRequested` outside `Processing` does not change `AppState`
 
 ## Orthogonal UI Preference State
