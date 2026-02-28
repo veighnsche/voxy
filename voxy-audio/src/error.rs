@@ -18,4 +18,16 @@ pub enum AudioError {
     CpalThreadSpawn(#[source] io::Error),
     #[error("cpal capture thread ended before startup completed")]
     CpalThreadStartup,
+    #[error("audio input is not running; start recording before injecting fixture audio")]
+    FixtureInjectWhileStopped,
+    #[error("fixture audio file not found: {0}")]
+    FixtureNotFound(String),
+    #[error("failed to read fixture audio file '{path}': {source}")]
+    FixtureRead {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to decode fixture audio '{path}': {message}")]
+    FixtureDecode { path: String, message: String },
 }

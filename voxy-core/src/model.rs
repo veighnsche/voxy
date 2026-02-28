@@ -12,6 +12,7 @@ pub enum CoreCommand {
     ShowWindow,
     HideWindow,
     CopyTextToClipboard(String),
+    InjectFixtureAudio(u8),
     QuitApplication,
 }
 
@@ -72,6 +73,10 @@ impl CoreModel {
             AppEvent::CopyRequested => {
                 self.log_line = "Copy requested".to_owned();
                 vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
+            }
+            AppEvent::FixtureInjectRequested(fixture_id) => {
+                self.log_line = format!("Fixture injection requested: test_{fixture_id}");
+                vec![CoreCommand::InjectFixtureAudio(fixture_id)]
             }
             AppEvent::QuitRequested => vec![
                 CoreCommand::StopAudioInput,
@@ -230,6 +235,16 @@ mod tests {
             commands,
             vec![CoreCommand::CopyTextToClipboard("hello world".to_owned())]
         );
+    }
+
+    #[test]
+    fn fixture_inject_requested_emits_audio_command() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::FixtureInjectRequested(3));
+
+        assert_eq!(commands, vec![CoreCommand::InjectFixtureAudio(3)]);
+        assert_eq!(model.log_line, "Fixture injection requested: test_3");
     }
 
     #[test]

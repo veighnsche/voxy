@@ -1,5 +1,6 @@
 pub mod close_button;
 pub mod copy_button;
+pub mod input_level_meter;
 pub mod log_display;
 pub mod mic_button;
 pub mod model_dropdown;

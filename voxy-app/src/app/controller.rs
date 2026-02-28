@@ -7,7 +7,7 @@ use std::{
 
 use gtk4::{prelude::*, Application};
 use tokio::{runtime::Runtime, sync::mpsc};
-use voxy_core::{AppEvent, CoreModel};
+use voxy_core::{AppEvent, AppState, CoreModel};
 use voxy_stt::TranscriptionModel;
 
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
 };
 
 const RUNTIME_ERROR_CLEAR_DELAY: Duration = Duration::from_secs(2);
+const INPUT_LEVEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
 
 pub fn run() {
@@ -113,6 +114,8 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         event_tx.clone(),
         command_bus,
     );
+
+    start_input_level_meter_loop(widgets.clone(), Rc::clone(&model), Arc::clone(&audio_input));
 
     if let Err(message) = tray::start(event_tx.clone()) {
         let _ = event_tx.try_send(AppEvent::RuntimeError(message));
@@ -284,6 +287,19 @@ fn schedule_runtime_error_clear(event_tx: mpsc::Sender<AppEvent>) {
     gtk4::glib::timeout_add_local(RUNTIME_ERROR_CLEAR_DELAY, move || {
         let _ = event_tx.try_send(AppEvent::ErrorCleared);
         gtk4::glib::ControlFlow::Break
+    });
+}
+
+fn start_input_level_meter_loop(
+    widgets: Widgets,
+    model: Rc<RefCell<CoreModel>>,
+    audio_input: Arc<voxy_audio::InputEngine>,
+) {
+    gtk4::glib::timeout_add_local(INPUT_LEVEL_POLL_INTERVAL, move || {
+        let active = matches!(model.borrow().app_state, AppState::Recording);
+        let level = audio_input.latest_input_level();
+        crate::ui::atoms::input_level_meter::render(&widgets.input_level_meter, level, active);
+        gtk4::glib::ControlFlow::Continue
     });
 }
 

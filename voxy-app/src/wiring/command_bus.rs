@@ -169,6 +169,20 @@ impl CommandBus {
                 behavior::system::clipboard::copy_text_to_clipboard(&self.window, &text);
                 self.emit_log_message("Transcript copied to clipboard");
             }
+            CoreCommand::InjectFixtureAudio(fixture_id) => {
+                if let Err(error) = self.audio_input.inject_fixture_checked(fixture_id) {
+                    self.emit_runtime_error(error.to_string());
+                    pipeline_trace::log("command", format!("InjectFixtureAudio error={error}"));
+                } else {
+                    self.emit_log_message(format!(
+                        "Fixture test_{fixture_id}.mp3 injected into microphone stream"
+                    ));
+                    pipeline_trace::log(
+                        "command",
+                        format!("InjectFixtureAudio ok id={fixture_id}"),
+                    );
+                }
+            }
             CoreCommand::QuitApplication => {
                 pipeline_trace::log("command", "QuitApplication");
                 tray::shutdown();
