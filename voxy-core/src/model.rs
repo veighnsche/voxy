@@ -58,11 +58,6 @@ impl CoreModel {
             AppEvent::VisibilityToggled => self.reduce_visibility_toggle(),
             AppEvent::ShowRequested => self.reduce_show_requested(),
             AppEvent::HideRequested => self.reduce_hide_requested(),
-            AppEvent::WindowPositionUpdated { left, top } => {
-                self.ui_prefs.window_left = left.max(0);
-                self.ui_prefs.window_top = top.max(0);
-                Vec::new()
-            }
             AppEvent::CopyRequested => {
                 vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
             }
@@ -85,6 +80,11 @@ impl CoreModel {
     pub fn apply_user_edit(&mut self, text: String) {
         self.buffer.replace_confirmed(text);
         self.buffer.clear_live();
+    }
+
+    pub fn set_window_position(&mut self, left: i32, top: i32) {
+        self.ui_prefs.window_left = left.max(0);
+        self.ui_prefs.window_top = top.max(0);
     }
 
     fn reduce_mic_toggle(&mut self) -> Vec<CoreCommand> {
@@ -279,9 +279,8 @@ mod tests {
     fn window_position_updates_are_clamped_and_persisted() {
         let mut model = CoreModel::default();
 
-        let commands = model.reduce(AppEvent::WindowPositionUpdated { left: -10, top: 42 });
+        model.set_window_position(-10, 42);
 
-        assert!(commands.is_empty());
         assert_eq!(model.ui_prefs.window_left, 0);
         assert_eq!(model.ui_prefs.window_top, 42);
     }

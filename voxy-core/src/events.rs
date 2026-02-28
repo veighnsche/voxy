@@ -7,7 +7,6 @@ pub enum AppEvent {
     VisibilityToggled,
     ShowRequested,
     HideRequested,
-    WindowPositionUpdated { left: i32, top: i32 },
     CopyRequested,
     QuitRequested,
     RuntimeError(String),

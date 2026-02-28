@@ -24,6 +24,7 @@ struct GuiArgs {
 
 #[derive(Debug, Subcommand)]
 enum GuiCommand {
+    DragMathSim(tasks::gui::drag_math_sim::DragMathSimArgs),
     Lifecycle(tasks::gui::lifecycle::LifecycleArgs),
     ResetFlow(tasks::gui::reset_flow::ResetFlowArgs),
     Smoke(tasks::gui::smoke::SmokeArgs),
@@ -37,6 +38,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Gui(gui) => match gui.command {
+            GuiCommand::DragMathSim(args) => tasks::gui::drag_math_sim::run(args),
             GuiCommand::Lifecycle(args) => tasks::gui::lifecycle::run(args),
             GuiCommand::ResetFlow(args) => tasks::gui::reset_flow::run(args),
             GuiCommand::Smoke(args) => tasks::gui::smoke::run(args),

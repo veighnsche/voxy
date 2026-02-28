@@ -1,4 +1,5 @@
 pub mod common;
+pub mod drag_math_sim;
 pub mod lifecycle;
 pub mod reset_flow;
 pub mod smoke;

@@ -6,7 +6,7 @@ This document describes non-audio wiring inside `voxy-app`.
 - `voxy-app/src/app/`
   - `behavior/`: UI-shell behavior primitives (GTK/window side effects)
     - `drag/`
-      - `gesture.rs`: installs drag controller and emits `WindowPositionUpdated`
+      - `gesture.rs`: installs drag controller and emits direct position updates
       - `hit_test.rs`: blocks drag start over interactive widgets
       - `session.rs`: drag state primitive (active + base margins)
     - `surface/`

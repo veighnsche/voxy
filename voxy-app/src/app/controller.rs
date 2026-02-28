@@ -61,7 +61,16 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
     });
 
     close_request::install_hide_on_close(&widgets.window, event_tx.clone());
-    drag::connect_drag_surface(&widgets.window, event_tx.clone());
+    drag::connect_drag_surface(&widgets.window, {
+        let model = Rc::clone(&model);
+        let layer_shell_backend = Rc::clone(&layer_shell_backend);
+        let window = widgets.window.clone();
+
+        move |left, top| {
+            model.borrow_mut().set_window_position(left, top);
+            layer_shell_backend.apply_position(&window, left, top);
+        }
+    });
 
     wire_ui_signals(
         widgets.clone(),
