@@ -13,6 +13,8 @@ validate: doctor
     cargo fmt --all -- --check
     cargo check
     cargo test -p voxy-core
+    cargo test -p voxy-audio
+    cargo test -p voxy-stt
     cargo run -p xtask -- gui smoke
     cargo run -p xtask -- gui lifecycle
     cargo run -p xtask -- gui reset-flow

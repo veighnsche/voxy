@@ -2,6 +2,8 @@
 pub enum AppEvent {
     MicToggled,
     ResetRequested,
+    FixturePlaybackRequested(u8),
+    LogMessage(String),
     LiveText(String),
     CommitRequested,
     VisibilityToggled,

@@ -1,11 +1,10 @@
 use crate::{transition, AppEvent, AppState, BufferState, UiPrefs};
 
-const RECORD_SEED_TEXT: &str = "lorum ipso";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreCommand {
     StartAudioInput,
     StopAudioInput,
+    RouteMicrophoneAudio,
     StartTranscriber,
     StopTranscriber,
     StopTranscriberThenEmit(AppEvent),
@@ -13,6 +12,7 @@ pub enum CoreCommand {
     ShowWindow,
     HideWindow,
     CopyTextToClipboard(String),
+    RouteFixtureAudio(u8),
     QuitApplication,
 }
 
@@ -21,6 +21,7 @@ pub struct CoreModel {
     pub app_state: AppState,
     pub buffer: BufferState,
     pub ui_prefs: UiPrefs,
+    pub log_line: String,
     pub runtime_error: Option<String>,
 }
 
@@ -30,6 +31,7 @@ impl Default for CoreModel {
             app_state: AppState::Idle,
             buffer: BufferState::default(),
             ui_prefs: UiPrefs::default(),
+            log_line: "Ready".to_owned(),
             runtime_error: None,
         }
     }
@@ -42,8 +44,17 @@ impl CoreModel {
             AppEvent::ResetRequested => {
                 self.app_state = transition(&self.app_state, &AppEvent::ResetRequested);
                 self.buffer.reset_all();
+                self.log_line = "Reset completed".to_owned();
                 self.runtime_error = None;
-                vec![CoreCommand::StopAudioInput, CoreCommand::StopTranscriber]
+                vec![
+                    CoreCommand::StopAudioInput,
+                    CoreCommand::StopTranscriber,
+                    CoreCommand::RouteMicrophoneAudio,
+                ]
+            }
+            AppEvent::LogMessage(message) => {
+                self.log_line = message;
+                Vec::new()
             }
             AppEvent::LiveText(text) => {
                 self.buffer.append_live(&text);
@@ -52,6 +63,7 @@ impl CoreModel {
             }
             AppEvent::CommitRequested => {
                 self.buffer.commit_live();
+                self.log_line = "Commit completed".to_owned();
                 self.app_state = transition(&self.app_state, &AppEvent::CommitRequested);
                 Vec::new()
             }
@@ -59,7 +71,12 @@ impl CoreModel {
             AppEvent::ShowRequested => self.reduce_show_requested(),
             AppEvent::HideRequested => self.reduce_hide_requested(),
             AppEvent::CopyRequested => {
+                self.log_line = "Copy requested".to_owned();
                 vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
+            }
+            AppEvent::FixturePlaybackRequested(fixture_id) => {
+                self.log_line = format!("Fixture route requested: test_{fixture_id}");
+                vec![CoreCommand::RouteFixtureAudio(fixture_id)]
             }
             AppEvent::QuitRequested => vec![
                 CoreCommand::StopAudioInput,
@@ -67,6 +84,7 @@ impl CoreModel {
                 CoreCommand::QuitApplication,
             ],
             AppEvent::RuntimeError(message) => {
+                self.log_line = format!("Error: {message}");
                 self.runtime_error = Some(message);
                 Vec::new()
             }
@@ -92,15 +110,17 @@ impl CoreModel {
         self.app_state = transition(&self.app_state, &AppEvent::MicToggled);
 
         match (previous, self.app_state.clone()) {
-            (AppState::Idle, AppState::Recording) => vec![
-                CoreCommand::StartAudioInput,
-                CoreCommand::StartTranscriber,
-                CoreCommand::EmitEvent(AppEvent::LiveText(RECORD_SEED_TEXT.to_owned())),
-            ],
-            (AppState::Recording, AppState::Processing) => vec![
-                CoreCommand::StopAudioInput,
-                CoreCommand::StopTranscriberThenEmit(AppEvent::CommitRequested),
-            ],
+            (AppState::Idle, AppState::Recording) => {
+                self.log_line = "Recording started".to_owned();
+                vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber]
+            }
+            (AppState::Recording, AppState::Processing) => {
+                self.log_line = "Recording stopped; processing".to_owned();
+                vec![
+                    CoreCommand::StopAudioInput,
+                    CoreCommand::StopTranscriberThenEmit(AppEvent::CommitRequested),
+                ]
+            }
             _ => Vec::new(),
         }
     }
@@ -132,7 +152,7 @@ impl CoreModel {
 
 #[cfg(test)]
 mod tests {
-    use super::{CoreCommand, CoreModel, RECORD_SEED_TEXT};
+    use super::{CoreCommand, CoreModel};
     use crate::{AppEvent, AppState};
 
     #[test]
@@ -144,11 +164,7 @@ mod tests {
         assert_eq!(model.app_state, AppState::Recording);
         assert_eq!(
             commands,
-            vec![
-                CoreCommand::StartAudioInput,
-                CoreCommand::StartTranscriber,
-                CoreCommand::EmitEvent(AppEvent::LiveText(RECORD_SEED_TEXT.to_owned())),
-            ]
+            vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber,]
         );
     }
 
@@ -222,13 +238,41 @@ mod tests {
     }
 
     #[test]
+    fn fixture_playback_requested_emits_audio_command() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::FixturePlaybackRequested(3));
+
+        assert_eq!(commands, vec![CoreCommand::RouteFixtureAudio(3)]);
+        assert_eq!(model.log_line, "Fixture route requested: test_3");
+    }
+
+    #[test]
+    fn log_message_event_updates_footer_log_line() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::LogMessage("audio started".to_owned()));
+
+        assert!(commands.is_empty());
+        assert_eq!(model.log_line, "audio started");
+    }
+
+    #[test]
     fn reset_keeps_visibility_preference() {
         let mut model = CoreModel::default();
         model.ui_prefs.visible = false;
 
-        let _ = model.reduce(AppEvent::ResetRequested);
+        let commands = model.reduce(AppEvent::ResetRequested);
 
         assert!(!model.ui_prefs.visible);
+        assert_eq!(
+            commands,
+            vec![
+                CoreCommand::StopAudioInput,
+                CoreCommand::StopTranscriber,
+                CoreCommand::RouteMicrophoneAudio,
+            ]
+        );
     }
 
     #[test]

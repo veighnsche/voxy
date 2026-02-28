@@ -50,8 +50,11 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         wiring::channels::build_event_channels();
     let event_rx = Rc::new(RefCell::new(event_rx));
 
-    let transcriber = Arc::new(voxy_stt::DummyStreamingTranscriber::new(event_tx.clone()));
-    let audio_input = Arc::new(voxy_audio::NoopAudioInput);
+    let audio_input = Arc::new(voxy_audio::InputEngine::new());
+    let transcriber = Arc::new(voxy_stt::DummyStreamingTranscriber::new(
+        event_tx.clone(),
+        Some(audio_input.clone() as Arc<dyn voxy_audio::AudioFrameSource>),
+    ));
 
     diagnostics::smoke_hooks::install(&widgets.window, &event_tx);
     diagnostics::smoke_hooks::install_visibility_toggle_injector({
@@ -147,6 +150,13 @@ fn wire_ui_signals(
         let event_tx = event_tx.clone();
         widgets.copy_button.connect_clicked(move |_| {
             let _ = event_tx.try_send(AppEvent::CopyRequested);
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        widgets.play_fixture_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::FixturePlaybackRequested(3));
         });
     }
 

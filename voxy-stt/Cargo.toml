@@ -12,4 +12,5 @@ keywords = ["stt", "streaming", "tokio", "transcription"]
 
 [dependencies]
 tokio.workspace = true
+voxy-audio.workspace = true
 voxy-core.workspace = true

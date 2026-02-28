@@ -7,6 +7,7 @@ pub struct ControlActions {
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
+    pub play_fixture_button: Button,
     pub model_dropdown: ComboBoxText,
     pub close_button: Button,
 }
@@ -18,6 +19,7 @@ pub fn build() -> (GtkBox, ControlActions) {
     let mic_button = atoms::mic_button::build();
     let reset_button = atoms::reset_button::build();
     let copy_button = atoms::copy_button::build();
+    let play_fixture_button = atoms::play_fixture_button::build();
     let model_dropdown = atoms::model_dropdown::build();
     let close_button = atoms::close_button::build();
     let logo = atoms::voxy_logo::build();
@@ -27,6 +29,7 @@ pub fn build() -> (GtkBox, ControlActions) {
     left_slot.append(&mic_button);
     left_slot.append(&reset_button);
     left_slot.append(&copy_button);
+    left_slot.append(&play_fixture_button);
     left_slot.append(&model_dropdown);
 
     let center_slot = GtkBox::new(Orientation::Horizontal, 0);
@@ -47,6 +50,7 @@ pub fn build() -> (GtkBox, ControlActions) {
             mic_button,
             reset_button,
             copy_button,
+            play_fixture_button,
             model_dropdown,
             close_button,
         },

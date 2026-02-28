@@ -1,9 +1,11 @@
 # voxy-audio
 
-Audio input abstraction for Voxy.
+Audio input abstraction and adapter engine for Voxy.
 
 ## Contains
 - `AudioInput` trait
-- `NoopAudioInput` scaffold implementation
-
-This crate is intentionally stubbed until real audio capture is implemented.
+- `AudioFrameSource` trait
+- `InputEngine` route/session orchestrator
+- `AudioRoute` (microphone or fixture)
+- `FixtureMp3Adapter` for local test fixtures
+- `NoopAudioInput` and `CpalAudioInput` stubs

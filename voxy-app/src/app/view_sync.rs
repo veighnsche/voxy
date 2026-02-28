@@ -34,6 +34,7 @@ pub fn build_view_model(model: &CoreModel) -> ViewModel {
         text: model.buffer.full_text(),
         mic_on,
         state_badge_text: state_text,
+        log_text: model.log_line.clone(),
         error_message,
     }
 }

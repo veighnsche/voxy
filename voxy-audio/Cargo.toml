@@ -6,8 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Audio input abstraction and stubs for Voxy"
+description = "Audio input abstraction and adapter engine for Voxy"
 readme = "README.md"
 keywords = ["audio", "capture", "abstraction", "stt"]
 
 [dependencies]
+minimp3 = "0.5"
+thiserror = "1.0"

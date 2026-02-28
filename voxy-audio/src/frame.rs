@@ -13,4 +13,12 @@ impl PcmFrame {
             samples_i16,
         }
     }
+
+    pub fn len_samples(&self) -> usize {
+        self.samples_i16.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples_i16.is_empty()
+    }
 }
