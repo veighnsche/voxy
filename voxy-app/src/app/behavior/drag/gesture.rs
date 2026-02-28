@@ -25,23 +25,23 @@ pub fn connect_drag_surface(window: &ApplicationWindow, on_position: impl Fn(i32
 
         drag_gesture.connect_drag_begin(move |_gesture, start_x, start_y| {
             if !hit_test::should_start_drag(&window_for_pick, start_x, start_y) {
-                trace_drag(format!(
-                    "b! s={start_x:.1},{start_y:.1} reason=interactive"
-                ));
+                trace_drag(|| Some(format!("b! s={start_x:.1},{start_y:.1} reason=interactive")));
                 drag_session.cancel();
                 return;
             }
 
             let base_left = window_for_start.margin(Edge::Left);
             let base_top = window_for_start.margin(Edge::Top);
-            let scale_factor = current_scale_factor(&window_for_start);
             drag_session.begin();
             let start_abs_x = (base_left as f64) + start_x;
             let start_abs_y = (base_top as f64) + start_y;
             trace_state.begin(base_left, base_top, start_abs_x, start_abs_y);
-            trace_drag(format!(
-                "b s={start_x:.1},{start_y:.1} b={base_left},{base_top} sf={scale_factor} a0={start_abs_x:.1},{start_abs_y:.1}"
-            ));
+            trace_drag(|| {
+                let scale_factor = current_scale_factor(&window_for_start);
+                Some(format!(
+                    "b s={start_x:.1},{start_y:.1} b={base_left},{base_top} sf={scale_factor} a0={start_abs_x:.1},{start_abs_y:.1}"
+                ))
+            });
         });
     }
 
@@ -54,7 +54,6 @@ pub fn connect_drag_surface(window: &ApplicationWindow, on_position: impl Fn(i32
                 return;
             }
 
-            let scale_factor = current_scale_factor(&window_for_update);
             let bounds = current_drag_bounds(&window_for_update);
             let current_left = window_for_update.margin(Edge::Left);
             let current_top = window_for_update.margin(Edge::Top);
@@ -66,7 +65,6 @@ pub fn connect_drag_surface(window: &ApplicationWindow, on_position: impl Fn(i32
                     &window_for_update,
                     offset_x,
                     offset_y,
-                    scale_factor,
                     bounds,
                     left,
                     top,
@@ -81,11 +79,13 @@ pub fn connect_drag_surface(window: &ApplicationWindow, on_position: impl Fn(i32
         let trace_state = Rc::clone(&trace_state);
 
         drag_gesture.connect_drag_end(move |_gesture, _offset_x, _offset_y| {
-            trace_drag(format!(
-                "e n={} dt={}ms",
-                trace_state.sequence(),
-                trace_state.elapsed_ms()
-            ));
+            trace_drag(|| {
+                Some(format!(
+                    "e n={} dt={}ms",
+                    trace_state.sequence(),
+                    trace_state.elapsed_ms()
+                ))
+            });
             trace_state.reset();
             drag_session.end();
         });
@@ -110,20 +110,18 @@ fn current_drag_bounds(window: &ApplicationWindow) -> DragBounds {
             let geometry = monitor.geometry();
             (geometry.width(), geometry.height())
         })
-        .unwrap_or_else(|| fallback_monitor_size(window));
+        .unwrap_or_else(|| {
+            let width = window.width().max(window.default_width()).max(1);
+            let height = window.height().max(window.default_height()).max(1);
+            (width, height)
+        });
 
     let window_width = window.width().max(window.default_width()).max(1);
     let window_height = window.height().max(window.default_height()).max(1);
-    let max_left = (monitor_width - window_width).max(0);
-    let max_top = (monitor_height - window_height).max(0);
+    let max_left = monitor_width - window_width;
+    let max_top = monitor_height - window_height;
 
     DragBounds::from_extents(max_left, max_top)
-}
-
-fn fallback_monitor_size(window: &ApplicationWindow) -> (i32, i32) {
-    let width = window.width().max(window.default_width()).max(1);
-    let height = window.height().max(window.default_height()).max(1);
-    (width, height)
 }
 
 #[derive(Default)]
@@ -174,47 +172,45 @@ fn trace_update(
     window: &ApplicationWindow,
     offset_x: f64,
     offset_y: f64,
-    scale_factor: i32,
     bounds: DragBounds,
     left: i32,
     top: i32,
 ) {
-    if !drag_trace_enabled() {
-        return;
-    }
-
-    let seq = trace_state.bump_sequence();
-    let every = drag_trace_every().max(1);
-    if seq % every != 0 {
-        return;
-    }
-
-    let elapsed = trace_state.elapsed_ms();
-    let (abs_x, abs_y, drift_x, drift_y) = match pointer_abs(window) {
-        Some((pointer_abs_x, pointer_abs_y)) => {
-            let pointer_dx = pointer_abs_x - trace_state.start_abs_x.get();
-            let pointer_dy = pointer_abs_y - trace_state.start_abs_y.get();
-            let window_dx = (left - trace_state.base_left.get()) as f64;
-            let window_dy = (top - trace_state.base_top.get()) as f64;
-            (
-                format!("{pointer_abs_x:.1}"),
-                format!("{pointer_abs_y:.1}"),
-                format!("{:.1}", pointer_dx - window_dx),
-                format!("{:.1}", pointer_dy - window_dy),
-            )
+    trace_drag(|| {
+        let seq = trace_state.bump_sequence();
+        let every = drag_trace_every().max(1);
+        if seq % every != 0 {
+            return None;
         }
-        None => (
-            "na".to_owned(),
-            "na".to_owned(),
-            "na".to_owned(),
-            "na".to_owned(),
-        ),
-    };
 
-    trace_drag(format!(
-        "u#{seq} t={elapsed}ms o={offset_x:.1},{offset_y:.1} p={left},{top} sf={scale_factor} b={},{} m={},{} a={abs_x},{abs_y} d={drift_x},{drift_y}",
-        bounds.max_left, bounds.max_top, window.width(), window.height()
-    ));
+        let elapsed = trace_state.elapsed_ms();
+        let scale_factor = current_scale_factor(window);
+        let (abs_x, abs_y, drift_x, drift_y) = match pointer_abs(window) {
+            Some((pointer_abs_x, pointer_abs_y)) => {
+                let pointer_dx = pointer_abs_x - trace_state.start_abs_x.get();
+                let pointer_dy = pointer_abs_y - trace_state.start_abs_y.get();
+                let window_dx = (left - trace_state.base_left.get()) as f64;
+                let window_dy = (top - trace_state.base_top.get()) as f64;
+                (
+                    format!("{pointer_abs_x:.1}"),
+                    format!("{pointer_abs_y:.1}"),
+                    format!("{:.1}", pointer_dx - window_dx),
+                    format!("{:.1}", pointer_dy - window_dy),
+                )
+            }
+            None => (
+                "na".to_owned(),
+                "na".to_owned(),
+                "na".to_owned(),
+                "na".to_owned(),
+            ),
+        };
+
+        Some(format!(
+            "u#{seq} t={elapsed}ms o={offset_x:.1},{offset_y:.1} p={left},{top} sf={scale_factor} b={},{} m={},{} a={abs_x},{abs_y} d={drift_x},{drift_y}",
+            bounds.max_left, bounds.max_top, window.width(), window.height()
+        ))
+    });
 }
 
 fn pointer_abs(window: &ApplicationWindow) -> Option<(f64, f64)> {
@@ -231,12 +227,14 @@ fn pointer_abs(window: &ApplicationWindow) -> Option<(f64, f64)> {
     Some((margin_left + local_x, margin_top + local_y))
 }
 
-fn trace_drag(message: impl AsRef<str>) {
+fn trace_drag(build_message: impl FnOnce() -> Option<String>) {
     if !drag_trace_enabled() {
         return;
     }
 
-    eprintln!("[voxy:drag] {}", message.as_ref());
+    if let Some(message) = build_message() {
+        eprintln!("[voxy:drag] {message}");
+    }
 }
 
 fn drag_trace_enabled() -> bool {

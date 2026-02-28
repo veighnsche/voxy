@@ -28,8 +28,7 @@ impl DragSession {
     }
 
     pub fn cancel(&self) {
-        self.active.set(false);
-        self.last_position.set(None);
+        self.end();
     }
 
     pub fn end(&self) {
@@ -122,5 +121,44 @@ mod tests {
             session.position_for(10, 10, 100.0, 50.0, DragBounds::from_extents(500, 500));
 
         assert_eq!(position, Some((110, 60)));
+    }
+
+    #[test]
+    fn snapshots_current_drag_sequence_behavior() {
+        let session = DragSession::default();
+        session.begin();
+
+        let bounds = DragBounds::from_extents(100, 100);
+        let mut current = (24, 24);
+        let mut observed = Vec::new();
+
+        for (offset_x, offset_y) in [
+            (10.0, 0.0),
+            (20.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 0.0),
+            (-200.0, -50.0),
+            (-200.0, -50.0),
+            (15.6, 15.4),
+        ] {
+            let next = session.position_for(current.0, current.1, offset_x, offset_y, bounds);
+            if let Some(position) = next {
+                current = position;
+            }
+            observed.push(next);
+        }
+
+        assert_eq!(
+            observed,
+            vec![
+                Some((34, 24)),
+                Some((54, 24)),
+                Some((84, 24)),
+                Some((100, 24)),
+                Some((0, 0)),
+                None,
+                Some((16, 15)),
+            ]
+        );
     }
 }
