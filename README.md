@@ -57,13 +57,17 @@ just doctor  # verify toolchain + pkg-config modules
 cargo fmt --all
 cargo check -p voxy-core -p voxy-audio -p voxy-stt
 cargo test -p voxy-core
-just gui
+just dev
 ```
 
-For UI iteration with auto-restart on file changes:
+`just dev` is the canonical UI entry point:
+- with `watchexec`/`cargo-watch`, it auto-restarts on file changes
+- without a watcher, it runs a normal single-session GUI
+
+For a direct single-session run:
 
 ```bash
-just dev
+just gui
 ```
 
 GUI smoke test via `xtask` (launch, signal, verify shutdown):

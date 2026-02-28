@@ -9,6 +9,9 @@ deps:
 doctor:
     ./scripts/dev/doctor.sh
 
+install: doctor
+    ./scripts/dev/install-desktop.sh
+
 validate: doctor
     cargo fmt --all -- --check
     cargo check
@@ -28,8 +31,9 @@ gui: doctor
 gui-trace every="10": doctor
     VOXY_TRACE_PIPELINE=1 VOXY_TRACE_PIPELINE_EVERY={{every}} cargo run -p voxy-app
 
-# Fast UI loop: restarts app on source/config changes.
-# Requires one of: watchexec, cargo-watch.
+# Canonical UI dev entry point:
+# - with watcher: restarts app on source/config changes
+# - without watcher: runs a normal single app session
 dev: doctor
     #!/usr/bin/env bash
     set -euo pipefail
@@ -56,9 +60,10 @@ dev: doctor
         --watch Cargo.lock \
         -x 'run -p voxy-app'
     else
-      echo "Install a watcher first:"
+      echo "No file watcher found; running single-session GUI."
+      echo "Install one for auto-restart:"
       echo "  cargo install watchexec-cli"
       echo "or"
       echo "  cargo install cargo-watch"
-      exit 1
+      exec cargo run -p voxy-app
     fi

@@ -33,19 +33,21 @@ Supported distro families:
 - Arch-like (`pacman`)
 - openSUSE (`zypper`)
 
-## Run the GUI
-
-```bash
-just gui
-```
-
-## UI Iteration Loop
+## Canonical GUI Entry Point
 
 ```bash
 just dev
 ```
 
-`just dev` is auto-restart on file changes, not live widget hot reload.
+`just dev` is the canonical UI command:
+- with `watchexec` or `cargo-watch`, it auto-restarts on file changes
+- without a watcher, it falls back to a normal single-session GUI run
+
+## One-Shot GUI Run
+
+```bash
+just gui
+```
 
 ## GUI Validation Tasks
 
