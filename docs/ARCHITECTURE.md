@@ -8,7 +8,7 @@ This scaffold defines boundaries, data flow, and async integration points withou
   - Buffer model (`BufferState`)
   - App state machine (`AppState` + pure transition function)
   - Shared event contract (`AppEvent`)
-  - UI preference model (`UiPrefs`) for visibility state
+  - UI preference model (`UiPrefs`) for visibility + window position
   - Core reducer (`CoreModel::reduce`) that returns executable commands
 - `voxy-stt`: Streaming transcription abstraction.
   - `StreamingTranscriber` trait

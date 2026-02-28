@@ -69,3 +69,19 @@ cargo run -p xtask -- gui visibility-window-guard
 - `gui visibility-window-guard`: repeated visibility toggles, ensure single-window invariant.
 
 `xtask` GUI runs force `GTK_THEME=Adwaita` for deterministic output and to avoid host-theme-specific GTK warnings.
+
+## STT Fixture Tasks
+
+```bash
+just fixtures-fetch
+just fixtures-verify
+```
+
+- `fixtures-fetch`: downloads the pinned speech fixture from `tests/fixtures/audio/manifest.json`.
+- `fixtures-verify`: verifies fixture checksum and expected transcript metadata.
+
+Live STT e2e is opt-in:
+
+```bash
+VOXY_E2E_LIVE=1 just e2e-stt-live
+```

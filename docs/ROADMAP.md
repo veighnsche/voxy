@@ -14,6 +14,7 @@
 ## Phase 3: Real Streaming STT
 - Replace dummy transcriber with OpenAI streaming implementation
 - Keep `StreamingTranscriber` interface stable where practical
+- Follow `docs/STT_CONNECTION_PLAN.md` protocol mapping and sequencing
 
 ## Phase 4: Tail Reconciliation
 - Improve live tail behavior (partial/final chunk reconciliation)
