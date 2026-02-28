@@ -42,15 +42,8 @@ impl CoreModel {
         match event {
             AppEvent::MicToggled => self.reduce_mic_toggle(),
             AppEvent::ResetRequested => {
-                self.app_state = transition(&self.app_state, &AppEvent::ResetRequested);
                 self.buffer.reset_all();
-                self.log_line = "Reset completed".to_owned();
-                self.runtime_error = None;
-                vec![
-                    CoreCommand::StopAudioInput,
-                    CoreCommand::StopTranscriber,
-                    CoreCommand::RouteMicrophoneAudio,
-                ]
+                Vec::new()
             }
             AppEvent::LogMessage(message) => {
                 self.log_line = message;
@@ -265,14 +258,24 @@ mod tests {
         let commands = model.reduce(AppEvent::ResetRequested);
 
         assert!(!model.ui_prefs.visible);
-        assert_eq!(
-            commands,
-            vec![
-                CoreCommand::StopAudioInput,
-                CoreCommand::StopTranscriber,
-                CoreCommand::RouteMicrophoneAudio,
-            ]
-        );
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn reset_does_not_change_recording_state() {
+        let mut model = CoreModel {
+            app_state: AppState::Recording,
+            ..CoreModel::default()
+        };
+        model.buffer.replace_confirmed("hello".to_owned());
+        model.buffer.append_live(" world");
+
+        let commands = model.reduce(AppEvent::ResetRequested);
+
+        assert!(commands.is_empty());
+        assert_eq!(model.app_state, AppState::Recording);
+        assert!(model.buffer.confirmed_text.is_empty());
+        assert!(model.buffer.live_segment.is_empty());
     }
 
     #[test]
