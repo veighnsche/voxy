@@ -15,12 +15,18 @@ Voxy is currently scaffold-first. Contributions should preserve strict module bo
 
 ## Development
 ```bash
+just doctor
 cargo fmt --all
 cargo check -p voxy-core -p voxy-audio -p voxy-stt
 cargo test -p voxy-core
 ```
 
-To compile `voxy-app`, install GTK4 development libraries and ensure `pkg-config` can find `gtk4.pc`.
+To install/check GTK prerequisites:
+
+```bash
+just deps
+just doctor
+```
 
 ## Pull Requests
 - Keep changes focused and reviewable.
