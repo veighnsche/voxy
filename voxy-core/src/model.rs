@@ -12,7 +12,6 @@ pub enum CoreCommand {
     ShowWindow,
     HideWindow,
     CopyTextToClipboard(String),
-    RouteFixtureAudio(u8),
     QuitApplication,
 }
 
@@ -73,10 +72,6 @@ impl CoreModel {
             AppEvent::CopyRequested => {
                 self.log_line = "Copy requested".to_owned();
                 vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
-            }
-            AppEvent::FixturePlaybackRequested(fixture_id) => {
-                self.log_line = format!("Fixture route requested: test_{fixture_id}");
-                vec![CoreCommand::RouteFixtureAudio(fixture_id)]
             }
             AppEvent::QuitRequested => vec![
                 CoreCommand::StopAudioInput,
@@ -235,16 +230,6 @@ mod tests {
             commands,
             vec![CoreCommand::CopyTextToClipboard("hello world".to_owned())]
         );
-    }
-
-    #[test]
-    fn fixture_playback_requested_emits_audio_command() {
-        let mut model = CoreModel::default();
-
-        let commands = model.reduce(AppEvent::FixturePlaybackRequested(3));
-
-        assert_eq!(commands, vec![CoreCommand::RouteFixtureAudio(3)]);
-        assert_eq!(model.log_line, "Fixture route requested: test_3");
     }
 
     #[test]

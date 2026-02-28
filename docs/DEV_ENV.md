@@ -16,6 +16,7 @@ This validates:
 - `gtk4` pkg-config module (`gtk4.pc`)
 - `graphene-gobject-1.0` pkg-config module (`graphene-gobject-1.0.pc`)
 - `gtk4-layer-shell-0` pkg-config module (`gtk4-layer-shell-0.pc`)
+- `alsa` pkg-config module (`alsa.pc`) for CPAL microphone capture
 - optional file watcher (`watchexec` or `cargo-watch`) for `just dev`
 
 ## Install Dependencies
@@ -69,19 +70,3 @@ cargo run -p xtask -- gui visibility-window-guard
 - `gui visibility-window-guard`: repeated visibility toggles, ensure single-window invariant.
 
 `xtask` GUI runs force `GTK_THEME=Adwaita` for deterministic output and to avoid host-theme-specific GTK warnings.
-
-## STT Fixture Tasks
-
-```bash
-just fixtures-list
-```
-
-- `fixtures-list`: lists required local fixture pairs (`test_1` through `test_5`) and transcript previews.
-
-Live STT e2e is opt-in:
-
-```bash
-VOXY_E2E_LIVE=1 just e2e-stt-live
-```
-
-API key lookup for `e2e-stt-live` uses `voxy-stt` ingestion first, then `.env` / `.env.local` fallback for local dev.

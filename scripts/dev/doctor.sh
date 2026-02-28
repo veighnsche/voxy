@@ -32,60 +32,26 @@ recommend_install_cmd() {
   fi
 
   if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
-    echo "sudo apt-get update && sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev"
+    echo "sudo apt-get update && sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev libasound2-dev"
     return
   fi
 
   if [[ "$id" =~ (fedora|ultramarine|rhel|centos|rocky|almalinux) || "$like" =~ fedora ]]; then
-    echo "sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel"
+    echo "sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-lib-devel"
     return
   fi
 
   if [[ "$id" =~ (arch|manjaro|endeavouros) || "$like" =~ arch ]]; then
-    echo "sudo pacman -S --needed pkgconf gtk4 graphene gtk4-layer-shell"
+    echo "sudo pacman -S --needed pkgconf gtk4 graphene gtk4-layer-shell alsa-lib"
     return
   fi
 
   if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
-    echo "sudo zypper install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel"
+    echo "sudo zypper install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-devel"
     return
   fi
 
-  echo "Install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc"
-}
-
-recommend_audio_player_cmd() {
-  local id=""
-  local like=""
-
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    source /etc/os-release
-    id="${ID:-}"
-    like="${ID_LIKE:-}"
-  fi
-
-  if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
-    echo "sudo apt-get update && sudo apt-get install -y mpv ffmpeg vlc gstreamer1.0-tools"
-    return
-  fi
-
-  if [[ "$id" =~ (fedora|ultramarine|rhel|centos|rocky|almalinux) || "$like" =~ fedora ]]; then
-    echo "sudo dnf install -y mpv ffmpeg vlc gstreamer1-plugins-base-tools"
-    return
-  fi
-
-  if [[ "$id" =~ (arch|manjaro|endeavouros) || "$like" =~ arch ]]; then
-    echo "sudo pacman -S --needed mpv ffmpeg vlc gst-plugins-base"
-    return
-  fi
-
-  if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
-    echo "sudo zypper install -y mpv ffmpeg vlc gstreamer-plugins-base-tools"
-    return
-  fi
-
-  echo "Install one of: mpv, ffplay (ffmpeg), vlc, gst-play-1.0"
+  echo "Install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
 }
 
 check_command() {
@@ -110,34 +76,6 @@ check_pkg() {
   fi
 }
 
-check_audio_fixture() {
-  local fixture_path="tests/fixtures/audio/test_3.mp3"
-  if [[ -f "$fixture_path" ]]; then
-    print_ok "audio fixture available: $fixture_path"
-  else
-    print_warn "audio fixture missing: $fixture_path"
-    echo "      expected for fixture-input flow: record -> play(test_3)"
-  fi
-}
-
-check_audio_preview_player() {
-  local candidates=("mpv" "ffplay" "vlc" "gst-play-1.0")
-  local found=()
-
-  for candidate in "${candidates[@]}"; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      found+=("$candidate")
-    fi
-  done
-
-  if [[ "${#found[@]}" -gt 0 ]]; then
-    print_ok "audio playback tool available: ${found[*]}"
-  else
-    print_warn "no playback tool found (play button will not produce speaker output)"
-    echo "      install one with: $(recommend_audio_player_cmd)"
-  fi
-}
-
 echo "== Voxy Dev Environment Doctor =="
 
 check_command cargo
@@ -147,6 +85,7 @@ if command -v pkg-config >/dev/null 2>&1; then
   check_pkg gtk4
   check_pkg graphene-gobject-1.0
   check_pkg gtk4-layer-shell-0
+  check_pkg alsa
 fi
 
 if command -v watchexec >/dev/null 2>&1; then
@@ -157,9 +96,6 @@ else
   print_warn "no file watcher installed (optional for 'just dev')"
   echo "      install one with: cargo install watchexec-cli"
 fi
-
-check_audio_fixture
-check_audio_preview_player
 
 if [[ "$missing" -ne 0 ]]; then
   echo

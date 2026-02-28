@@ -1,19 +1,24 @@
 use std::sync::{Arc, Mutex};
 
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
     time::{self, Duration},
 };
 use voxy_audio::AudioFrameSource;
 use voxy_core::AppEvent;
 
-use crate::{traits::StreamingTranscriber, TranscriptionModel};
+use crate::trace;
+use crate::traits::{
+    StreamingTranscriber, TranscriberContractError, TranscriberInput, TranscriberOutput,
+    TranscriberSessionConfig, TranscriberStreamState,
+};
 
 pub struct DummyStreamingTranscriber {
     tx: mpsc::Sender<AppEvent>,
     audio_source: Option<Arc<dyn AudioFrameSource>>,
     tick_interval: Duration,
+    downlink_tx: broadcast::Sender<TranscriberOutput>,
     worker: Mutex<WorkerState>,
 }
 
@@ -21,6 +26,7 @@ pub struct DummyStreamingTranscriber {
 struct WorkerState {
     stop_tx: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
+    uplink_tx: Option<mpsc::UnboundedSender<TranscriberInput>>,
 }
 
 impl DummyStreamingTranscriber {
@@ -36,28 +42,44 @@ impl DummyStreamingTranscriber {
         audio_source: Option<Arc<dyn AudioFrameSource>>,
         tick_interval: Duration,
     ) -> Self {
+        let (downlink_tx, _) = broadcast::channel(64);
         Self {
             tx,
             audio_source,
             tick_interval,
+            downlink_tx,
             worker: Mutex::new(WorkerState::default()),
         }
     }
 }
 
 impl StreamingTranscriber for DummyStreamingTranscriber {
-    async fn start(&self, _model: TranscriptionModel) {
+    async fn start(
+        &self,
+        config: TranscriberSessionConfig,
+    ) -> Result<(), TranscriberContractError> {
         let mut worker = self
             .worker
             .lock()
             .expect("dummy transcriber mutex poisoned in start");
 
         if worker.task.is_some() {
-            return;
+            return Err(TranscriberContractError::AlreadyRunning);
         }
+        trace::log(
+            "dummy/start",
+            format!(
+                "model={} sample_rate={} channels={}",
+                config.model.as_api_id(),
+                config.sample_rate_hz,
+                config.channels
+            ),
+        );
 
         let (stop_tx, mut stop_rx) = oneshot::channel();
+        let (uplink_tx, mut uplink_rx) = mpsc::unbounded_channel();
         let tx = self.tx.clone();
+        let downlink_tx = self.downlink_tx.clone();
         let audio_source = self.audio_source.clone();
         let tick_interval = self.tick_interval;
 
@@ -66,22 +88,59 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
             let mut chunk_index = 0usize;
             let mut ticker = time::interval(tick_interval);
 
+            let _ = downlink_tx.send(TranscriberOutput::SessionStarted(config));
+
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {
                         if let Some(source) = audio_source.as_ref() {
-                            if source.read_frame().is_none() {
+                            let Some(frame) = source.read_frame() else {
+                                continue;
+                            };
+                            if frame.is_empty() {
                                 continue;
                             }
+
+                            let chunk = fake_chunks[chunk_index % fake_chunks.len()];
+                            chunk_index += 1;
+                            let payload = chunk.to_owned();
+
+                            if tx.send(AppEvent::LiveText(payload.clone())).await.is_err() {
+                                break;
+                            }
+                            trace::log("dummy/tick", format!("emit LiveText len={}", payload.len()));
+
+                            let _ = downlink_tx.send(TranscriberOutput::LiveText(payload));
                         }
+                    }
+                    input = uplink_rx.recv() => {
+                        match input {
+                            Some(TranscriberInput::AudioFrame(frame)) => {
+                                if frame.is_empty() {
+                                    continue;
+                                }
 
-                        let chunk = fake_chunks[chunk_index % fake_chunks.len()];
-                        chunk_index += 1;
+                                let chunk = fake_chunks[chunk_index % fake_chunks.len()];
+                                chunk_index += 1;
+                                let payload = chunk.to_owned();
 
-                        let payload = chunk.to_owned();
+                                if tx.send(AppEvent::LiveText(payload.clone())).await.is_err() {
+                                    break;
+                                }
 
-                        if tx.send(AppEvent::LiveText(payload)).await.is_err() {
-                            break;
+                                let _ = downlink_tx.send(TranscriberOutput::LiveText(payload));
+                            }
+                            Some(TranscriberInput::Commit) => {
+                                if tx.send(AppEvent::CommitRequested).await.is_err() {
+                                    break;
+                                }
+                                trace::log("dummy/uplink", "emit CommitRequested");
+                                let _ = downlink_tx.send(TranscriberOutput::SegmentCommitted);
+                            }
+                            Some(TranscriberInput::Clear) => {
+                                let _ = downlink_tx.send(TranscriberOutput::SegmentCleared);
+                            }
+                            None => break,
                         }
                     }
                     _ = &mut stop_rx => {
@@ -89,18 +148,41 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
                     }
                 }
             }
+
+            let _ = downlink_tx.send(TranscriberOutput::SessionStopped);
         });
 
         worker.stop_tx = Some(stop_tx);
         worker.task = Some(task);
+        worker.uplink_tx = Some(uplink_tx);
+        Ok(())
     }
 
-    async fn stop(&self) {
+    async fn push_input(&self, input: TranscriberInput) -> Result<(), TranscriberContractError> {
+        let uplink_tx = {
+            let worker = self
+                .worker
+                .lock()
+                .expect("dummy transcriber mutex poisoned in push_input");
+            worker.uplink_tx.clone()
+        };
+
+        let Some(uplink_tx) = uplink_tx else {
+            return Err(TranscriberContractError::NotRunning);
+        };
+
+        uplink_tx
+            .send(input)
+            .map_err(|_| TranscriberContractError::UplinkClosed)
+    }
+
+    async fn stop(&self) -> Result<(), TranscriberContractError> {
         let (stop_tx, task) = {
             let mut worker = self
                 .worker
                 .lock()
                 .expect("dummy transcriber mutex poisoned in stop");
+            worker.uplink_tx = None;
             (worker.stop_tx.take(), worker.task.take())
         };
 
@@ -110,6 +192,26 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
 
         if let Some(task) = task {
             let _ = task.await;
+        }
+        trace::log("dummy/stop", "stopped");
+
+        Ok(())
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<TranscriberOutput> {
+        self.downlink_tx.subscribe()
+    }
+
+    fn state(&self) -> TranscriberStreamState {
+        let worker = self
+            .worker
+            .lock()
+            .expect("dummy transcriber mutex poisoned in state");
+
+        if worker.task.is_some() {
+            TranscriberStreamState::Streaming
+        } else {
+            TranscriberStreamState::Idle
         }
     }
 }
@@ -123,7 +225,10 @@ mod tests {
     use voxy_core::AppEvent;
 
     use super::DummyStreamingTranscriber;
-    use crate::{traits::StreamingTranscriber, TranscriptionModel};
+    use crate::traits::{
+        StreamingTranscriber, TranscriberInput, TranscriberOutput, TranscriberSessionConfig,
+        TranscriberStreamState,
+    };
 
     struct TestAudioSource {
         frames: Mutex<VecDeque<PcmFrame>>,
@@ -165,13 +270,16 @@ mod tests {
         let transcriber =
             DummyStreamingTranscriber::new_with_tick(tx, Some(source), Duration::from_millis(10));
 
-        transcriber.start(TranscriptionModel::default()).await;
+        transcriber
+            .start(TranscriberSessionConfig::from_model(Default::default()))
+            .await
+            .expect("dummy start should succeed");
 
         let event = time::timeout(Duration::from_millis(200), rx.recv())
             .await
             .expect("timed out while waiting for live text");
 
-        transcriber.stop().await;
+        transcriber.stop().await.expect("dummy stop should succeed");
 
         match event {
             Some(AppEvent::LiveText(payload)) => {
@@ -188,12 +296,86 @@ mod tests {
         let transcriber =
             DummyStreamingTranscriber::new_with_tick(tx, Some(source), Duration::from_millis(10));
 
-        transcriber.start(TranscriptionModel::default()).await;
+        transcriber
+            .start(TranscriberSessionConfig::from_model(Default::default()))
+            .await
+            .expect("dummy start should succeed");
 
         let received = time::timeout(Duration::from_millis(80), rx.recv()).await;
 
-        transcriber.stop().await;
+        transcriber.stop().await.expect("dummy stop should succeed");
 
         assert!(received.is_err(), "unexpected live text received");
+    }
+
+    #[tokio::test]
+    async fn emits_live_text_from_uplink_audio_frame() {
+        let (tx, mut app_rx) = tokio::sync::mpsc::channel(8);
+        let transcriber =
+            DummyStreamingTranscriber::new_with_tick(tx, None, Duration::from_secs(1));
+        let mut downlink_rx = transcriber.subscribe();
+
+        transcriber
+            .start(TranscriberSessionConfig::from_model(Default::default()))
+            .await
+            .expect("dummy start should succeed");
+
+        transcriber
+            .push_input(TranscriberInput::AudioFrame(PcmFrame::new(
+                16_000,
+                1,
+                vec![1, 2, 3, 4],
+            )))
+            .await
+            .expect("uplink push should succeed");
+
+        let app_event = time::timeout(Duration::from_millis(200), app_rx.recv())
+            .await
+            .expect("timed out waiting for app event")
+            .expect("channel should emit");
+
+        let downlink_event = time::timeout(Duration::from_millis(200), async {
+            loop {
+                match downlink_rx.recv().await {
+                    Ok(event @ TranscriberOutput::LiveText(_)) => break event,
+                    Ok(_) => continue,
+                    Err(error) => panic!("downlink receive failed: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for live-text downlink event");
+
+        transcriber.stop().await.expect("dummy stop should succeed");
+
+        assert!(matches!(app_event, AppEvent::LiveText(_)));
+        assert!(matches!(downlink_event, TranscriberOutput::LiveText(_)));
+        assert_eq!(transcriber.state(), TranscriberStreamState::Idle);
+    }
+
+    #[tokio::test]
+    async fn emits_commit_event_from_uplink_commit() {
+        let (tx, mut app_rx) = tokio::sync::mpsc::channel(8);
+        let transcriber =
+            DummyStreamingTranscriber::new_with_tick(tx, None, Duration::from_secs(1));
+
+        transcriber
+            .start(TranscriberSessionConfig::from_model(Default::default()))
+            .await
+            .expect("dummy start should succeed");
+
+        transcriber
+            .push_input(TranscriberInput::Commit)
+            .await
+            .expect("commit push should succeed");
+
+        let app_event = time::timeout(Duration::from_millis(200), app_rx.recv())
+            .await
+            .expect("timed out waiting for commit")
+            .expect("channel should emit");
+
+        transcriber.stop().await.expect("dummy stop should succeed");
+
+        assert_eq!(app_event, AppEvent::CommitRequested);
     }
 }

@@ -12,7 +12,6 @@ pub struct Widgets {
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
-    pub play_fixture_button: Button,
     pub model_dropdown: ComboBoxText,
     pub close_button: Button,
     pub text_buffer: TextBuffer,
@@ -31,7 +30,6 @@ pub fn build(app: &Application) -> Widgets {
         mic_button: template.control_bar.actions.mic_button,
         reset_button: template.control_bar.actions.reset_button,
         copy_button: template.control_bar.actions.copy_button,
-        play_fixture_button: template.control_bar.actions.play_fixture_button,
         model_dropdown: template.control_bar.actions.model_dropdown,
         close_button: template.control_bar.actions.close_button,
         text_buffer: template.transcript_pane.text_buffer,
@@ -50,6 +48,14 @@ pub fn render(widgets: &Widgets, view_model: &ViewModel, applying_text_update: &
         false,
     );
     if current_text.as_str() != view_model.text {
+        crate::diagnostics::pipeline_trace::log(
+            "render",
+            format!(
+                "text_buffer.set_text old_len={} new_len={}",
+                current_text.len(),
+                view_model.text.len()
+            ),
+        );
         applying_text_update.set(true);
         widgets.text_buffer.set_text(&view_model.text);
         applying_text_update.set(false);

@@ -22,11 +22,13 @@ pub fn start(
                 }
             };
 
+            crate::diagnostics::pipeline_trace::log("event-loop", format!("dispatch {event:?}"));
             on_event(event);
             drained_any = true;
         }
 
         if drained_any {
+            crate::diagnostics::pipeline_trace::log("event-loop", "after_drain render");
             after_drain();
         }
         gtk4::glib::ControlFlow::Continue

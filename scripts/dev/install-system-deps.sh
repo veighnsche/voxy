@@ -23,7 +23,8 @@ if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
     pkg-config \
     libgtk-4-dev \
     libgraphene-1.0-dev \
-    libgtk4-layer-shell-dev
+    libgtk4-layer-shell-dev \
+    libasound2-dev
   exit 0
 fi
 
@@ -32,7 +33,8 @@ if [[ "$id" =~ (fedora|ultramarine|rhel|centos|rocky|almalinux) || "$like" =~ fe
     pkgconf-pkg-config \
     gtk4-devel \
     graphene-devel \
-    gtk4-layer-shell-devel
+    gtk4-layer-shell-devel \
+    alsa-lib-devel
   exit 0
 fi
 
@@ -41,7 +43,8 @@ if [[ "$id" =~ (arch|manjaro|endeavouros) || "$like" =~ arch ]]; then
     pkgconf \
     gtk4 \
     graphene \
-    gtk4-layer-shell
+    gtk4-layer-shell \
+    alsa-lib
   exit 0
 fi
 
@@ -50,10 +53,11 @@ if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
     pkgconf-pkg-config \
     gtk4-devel \
     graphene-devel \
-    gtk4-layer-shell-devel
+    gtk4-layer-shell-devel \
+    alsa-devel
   exit 0
 fi
 
 echo "Unsupported distribution: ID='${id}' ID_LIKE='${like}'"
-echo "Please install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc"
+echo "Please install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
 exit 1

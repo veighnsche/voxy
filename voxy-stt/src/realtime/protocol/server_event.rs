@@ -1,8 +1,103 @@
+use serde_json::Value;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerEvent {
     TranscriptionDelta { text: String },
-    TranscriptionCompleted,
+    TranscriptionCompleted { text: Option<String> },
     TranscriptionFailed { message: String },
     Error { message: String },
-    Unknown,
+    Unknown { event_type: Option<String> },
+}
+
+pub fn parse_server_event(value: &Value) -> ServerEvent {
+    let event_type = value.get("type").and_then(Value::as_str).map(str::to_owned);
+
+    match event_type.as_deref() {
+        Some("conversation.item.input_audio_transcription.delta") => {
+            let text = value
+                .get("delta")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            ServerEvent::TranscriptionDelta { text }
+        }
+        Some("conversation.item.input_audio_transcription.completed") => {
+            let text = value
+                .get("transcript")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            ServerEvent::TranscriptionCompleted { text }
+        }
+        Some("conversation.item.input_audio_transcription.failed") => {
+            let message = extract_message(value);
+            ServerEvent::TranscriptionFailed { message }
+        }
+        Some("error") => {
+            let message = extract_message(value);
+            ServerEvent::Error { message }
+        }
+        _ => ServerEvent::Unknown { event_type },
+    }
+}
+
+fn extract_message(value: &Value) -> String {
+    value
+        .get("error")
+        .and_then(Value::as_object)
+        .and_then(|error| error.get("message"))
+        .or_else(|| value.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown realtime server error")
+        .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{parse_server_event, ServerEvent};
+
+    #[test]
+    fn parses_transcription_delta() {
+        let event = parse_server_event(&json!({
+            "type": "conversation.item.input_audio_transcription.delta",
+            "delta": "hello "
+        }));
+        assert_eq!(
+            event,
+            ServerEvent::TranscriptionDelta {
+                text: "hello ".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn parses_transcription_completed_with_transcript() {
+        let event = parse_server_event(&json!({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "hello world"
+        }));
+        assert_eq!(
+            event,
+            ServerEvent::TranscriptionCompleted {
+                text: Some("hello world".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn parses_error_payload_message() {
+        let event = parse_server_event(&json!({
+            "type": "error",
+            "error": {
+                "message": "api key invalid"
+            }
+        }));
+        assert_eq!(
+            event,
+            ServerEvent::Error {
+                message: "api key invalid".to_owned()
+            }
+        );
+    }
 }

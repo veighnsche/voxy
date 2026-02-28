@@ -1,12 +1,12 @@
 pub mod adapters;
 pub mod engine;
 pub mod error;
-pub mod fixtures;
 pub mod frame;
 pub mod route;
 pub mod source;
+mod trace;
 
-pub use adapters::{cpal::CpalAudioInput, fixture_mp3::FixtureMp3Adapter, noop::NoopAudioInput};
+pub use adapters::{cpal::CpalAudioInput, noop::NoopAudioInput};
 pub use engine::{InputEngine, SessionSnapshot};
 pub use error::AudioError;
 pub use frame::PcmFrame;

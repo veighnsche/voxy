@@ -4,14 +4,16 @@ use gtk4::{prelude::*, Application, ApplicationWindow};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_audio::{AudioInput, AudioRoute, InputEngine};
 use voxy_core::{AppEvent, CoreCommand};
-use voxy_stt::{DummyStreamingTranscriber, StreamingTranscriber, TranscriptionModel};
+use voxy_stt::{StreamingTranscriber, TranscriberSessionConfig, TranscriptionModel};
 
-use crate::{app::behavior, tray};
+use crate::{
+    app::behavior, diagnostics::pipeline_trace, tray, wiring::transcriber::AppTranscriber,
+};
 
 #[derive(Clone)]
 pub struct CommandBus {
     event_tx: mpsc::Sender<AppEvent>,
-    transcriber: Arc<DummyStreamingTranscriber>,
+    transcriber: Arc<AppTranscriber>,
     audio_input: Arc<InputEngine>,
     runtime: Arc<Runtime>,
     window: ApplicationWindow,
@@ -22,7 +24,7 @@ pub struct CommandBus {
 impl CommandBus {
     pub fn new(
         event_tx: mpsc::Sender<AppEvent>,
-        transcriber: Arc<DummyStreamingTranscriber>,
+        transcriber: Arc<AppTranscriber>,
         audio_input: Arc<InputEngine>,
         runtime: Arc<Runtime>,
         window: ApplicationWindow,
@@ -55,26 +57,33 @@ impl CommandBus {
     }
 
     fn execute_one(&self, command: CoreCommand) {
+        pipeline_trace::log("command", format!("execute {command:?}"));
         match command {
             CoreCommand::StartAudioInput => {
                 if let Err(error) = self.audio_input.start_checked() {
                     self.emit_runtime_error(error.to_string());
+                    pipeline_trace::log("command", format!("StartAudioInput error={error}"));
                 } else {
                     self.emit_log_message("Audio input started");
+                    pipeline_trace::log("command", "StartAudioInput ok");
                 }
             }
             CoreCommand::StopAudioInput => {
                 if let Err(error) = self.audio_input.stop_checked() {
                     self.emit_runtime_error(error.to_string());
+                    pipeline_trace::log("command", format!("StopAudioInput error={error}"));
                 } else {
                     self.emit_log_message("Audio input stopped");
+                    pipeline_trace::log("command", "StopAudioInput ok");
                 }
             }
             CoreCommand::RouteMicrophoneAudio => {
                 if let Err(error) = self.audio_input.set_route(AudioRoute::Microphone) {
                     self.emit_runtime_error(error.to_string());
+                    pipeline_trace::log("command", format!("RouteMicrophoneAudio error={error}"));
                 } else {
                     self.emit_log_message("Audio route set to microphone");
+                    pipeline_trace::log("command", "RouteMicrophoneAudio ok");
                 }
             }
             CoreCommand::StartTranscriber => {
@@ -83,15 +92,40 @@ impl CommandBus {
                     .selected_model
                     .lock()
                     .expect("selected transcription model mutex poisoned");
+                let event_tx = self.event_tx.clone();
                 self.runtime.spawn(async move {
-                    transcriber.start(model).await;
+                    let config = TranscriberSessionConfig::from_model(model);
+                    pipeline_trace::log(
+                        "command",
+                        format!("StartTranscriber async start model={}", model.as_api_id()),
+                    );
+                    if let Err(error) = transcriber.start(config).await {
+                        let _ = event_tx
+                            .send(AppEvent::RuntimeError(format!(
+                                "failed to start transcriber: {error}"
+                            )))
+                            .await;
+                        pipeline_trace::log("command", format!("StartTranscriber error={error}"));
+                    } else {
+                        pipeline_trace::log("command", "StartTranscriber started");
+                    }
                 });
                 self.emit_log_message(format!("Transcriber started ({})", model.as_api_id()));
             }
             CoreCommand::StopTranscriber => {
                 let transcriber = Arc::clone(&self.transcriber);
+                let event_tx = self.event_tx.clone();
                 self.runtime.spawn(async move {
-                    transcriber.stop().await;
+                    if let Err(error) = transcriber.stop().await {
+                        let _ = event_tx
+                            .send(AppEvent::RuntimeError(format!(
+                                "failed to stop transcriber: {error}"
+                            )))
+                            .await;
+                        pipeline_trace::log("command", format!("StopTranscriber error={error}"));
+                    } else {
+                        pipeline_trace::log("command", "StopTranscriber stopped");
+                    }
                 });
                 self.emit_log_message("Transcriber stop requested");
             }
@@ -99,7 +133,21 @@ impl CommandBus {
                 let transcriber = Arc::clone(&self.transcriber);
                 let event_tx = self.event_tx.clone();
                 self.runtime.spawn(async move {
-                    transcriber.stop().await;
+                    if let Err(error) = transcriber.stop().await {
+                        let _ = event_tx
+                            .send(AppEvent::RuntimeError(format!(
+                                "failed to stop transcriber before emit: {error}"
+                            )))
+                            .await;
+                        pipeline_trace::log(
+                            "command",
+                            format!("StopTranscriberThenEmit stop error={error}"),
+                        );
+                    }
+                    pipeline_trace::log(
+                        "command",
+                        format!("StopTranscriberThenEmit emit {event:?}"),
+                    );
                     let _ = event_tx.send(event).await;
                 });
                 self.emit_log_message("Transcriber stopping; commit scheduled");
@@ -107,6 +155,7 @@ impl CommandBus {
             CoreCommand::EmitEvent(event) => {
                 let event_tx = self.event_tx.clone();
                 self.runtime.spawn(async move {
+                    pipeline_trace::log("command", format!("EmitEvent send {event:?}"));
                     let _ = event_tx.send(event).await;
                 });
             }
@@ -120,47 +169,8 @@ impl CommandBus {
                 behavior::system::clipboard::copy_text_to_clipboard(&self.window, &text);
                 self.emit_log_message("Transcript copied to clipboard");
             }
-            CoreCommand::RouteFixtureAudio(fixture_id) => {
-                if let Err(error) = self
-                    .audio_input
-                    .set_route(AudioRoute::fixture_test(fixture_id))
-                {
-                    self.emit_runtime_error(error.to_string());
-                } else {
-                    self.emit_log_message(format!("Audio route set to fixture test_{fixture_id}"));
-                    let event_tx = self.event_tx.clone();
-                    self.runtime.spawn(async move {
-                        let playback_task = tokio::task::spawn_blocking(move || {
-                            behavior::system::audio_preview::play_fixture_audio(fixture_id)
-                        });
-
-                        match playback_task.await {
-                            Ok(Ok(())) => {
-                                let _ = event_tx
-                                    .send(AppEvent::LogMessage(format!(
-                                        "Fixture playback started: test_{fixture_id}"
-                                    )))
-                                    .await;
-                            }
-                            Ok(Err(message)) => {
-                                let _ = event_tx
-                                    .send(AppEvent::RuntimeError(format!(
-                                        "fixture playback unavailable: {message}"
-                                    )))
-                                    .await;
-                            }
-                            Err(error) => {
-                                let _ = event_tx
-                                    .send(AppEvent::RuntimeError(format!(
-                                        "fixture playback task failed: {error}"
-                                    )))
-                                    .await;
-                            }
-                        }
-                    });
-                }
-            }
             CoreCommand::QuitApplication => {
+                pipeline_trace::log("command", "QuitApplication");
                 tray::shutdown();
                 self.app.quit();
             }

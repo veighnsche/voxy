@@ -6,6 +6,6 @@ Audio input abstraction and adapter engine for Voxy.
 - `AudioInput` trait
 - `AudioFrameSource` trait
 - `InputEngine` route/session orchestrator
-- `AudioRoute` (microphone or fixture)
-- `FixtureMp3Adapter` for local test fixtures
-- `NoopAudioInput` and `CpalAudioInput` stubs
+- `AudioRoute` (microphone)
+- real `CpalFrameSource` microphone capture path
+- `NoopAudioInput` compatibility adapter

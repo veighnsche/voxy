@@ -17,7 +17,7 @@ use crate::{
     },
     diagnostics, tray,
     ui::{self, Widgets},
-    wiring::{self, command_bus::CommandBus},
+    wiring::{self, command_bus::CommandBus, transcriber::AppTranscriber},
 };
 
 const RUNTIME_ERROR_CLEAR_DELAY: Duration = Duration::from_secs(2);
@@ -51,10 +51,18 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
     let event_rx = Rc::new(RefCell::new(event_rx));
 
     let audio_input = Arc::new(voxy_audio::InputEngine::new());
-    let transcriber = Arc::new(voxy_stt::DummyStreamingTranscriber::new(
+    let transcriber = Arc::new(AppTranscriber::from_env(
         event_tx.clone(),
         Some(audio_input.clone() as Arc<dyn voxy_audio::AudioFrameSource>),
     ));
+    diagnostics::pipeline_trace::log(
+        "activate",
+        format!("selected_stt_backend={}", transcriber.backend_name()),
+    );
+    let _ = event_tx.try_send(AppEvent::LogMessage(format!(
+        "STT backend: {}",
+        transcriber.backend_name()
+    )));
 
     diagnostics::smoke_hooks::install(&widgets.window, &event_tx);
     diagnostics::smoke_hooks::install_visibility_toggle_injector({
@@ -135,6 +143,7 @@ fn wire_ui_signals(
     {
         let event_tx = event_tx.clone();
         widgets.mic_button.connect_clicked(move |_| {
+            diagnostics::pipeline_trace::log("ui", "mic_button.clicked -> AppEvent::MicToggled");
             let _ = event_tx.try_send(AppEvent::MicToggled);
         });
     }
@@ -142,6 +151,10 @@ fn wire_ui_signals(
     {
         let event_tx = event_tx.clone();
         widgets.reset_button.connect_clicked(move |_| {
+            diagnostics::pipeline_trace::log(
+                "ui",
+                "reset_button.clicked -> AppEvent::ResetRequested",
+            );
             let _ = event_tx.try_send(AppEvent::ResetRequested);
         });
     }
@@ -149,14 +162,11 @@ fn wire_ui_signals(
     {
         let event_tx = event_tx.clone();
         widgets.copy_button.connect_clicked(move |_| {
+            diagnostics::pipeline_trace::log(
+                "ui",
+                "copy_button.clicked -> AppEvent::CopyRequested",
+            );
             let _ = event_tx.try_send(AppEvent::CopyRequested);
-        });
-    }
-
-    {
-        let event_tx = event_tx.clone();
-        widgets.play_fixture_button.connect_clicked(move |_| {
-            let _ = event_tx.try_send(AppEvent::FixturePlaybackRequested(3));
         });
     }
 
@@ -169,6 +179,10 @@ fn wire_ui_signals(
             let Some(model) = TranscriptionModel::from_api_id(model_id.as_str()) else {
                 return;
             };
+            diagnostics::pipeline_trace::log(
+                "ui",
+                format!("model_dropdown.changed -> {}", model.as_api_id()),
+            );
             command_bus.set_transcription_model(model);
         });
     }
@@ -176,6 +190,10 @@ fn wire_ui_signals(
     {
         let event_tx = event_tx.clone();
         widgets.close_button.connect_clicked(move |_| {
+            diagnostics::pipeline_trace::log(
+                "ui",
+                "close_button.clicked -> AppEvent::VisibilityToggled",
+            );
             let _ = event_tx.try_send(AppEvent::VisibilityToggled);
         });
     }
@@ -194,6 +212,10 @@ fn wire_ui_signals(
                 let text = buffer
                     .text(&buffer.start_iter(), &buffer.end_iter(), false)
                     .to_string();
+                diagnostics::pipeline_trace::log(
+                    "ui",
+                    format!("text_buffer.changed user_edit_len={}", text.len()),
+                );
 
                 model.borrow_mut().apply_user_edit(text);
             });
@@ -222,9 +244,26 @@ fn start_event_loop(
         event_rx,
         move |event| {
             let should_clear_runtime_error = matches!(&event, AppEvent::RuntimeError(_));
+            diagnostics::pipeline_trace::log("event", format!("received={event:?}"));
 
             let commands = model_for_events.borrow_mut().reduce(event);
+            diagnostics::pipeline_trace::log("event", format!("commands={commands:?}"));
             command_bus_for_events.execute(commands);
+
+            {
+                let snapshot = model_for_events.borrow();
+                diagnostics::pipeline_trace::log(
+                    "state",
+                    format!(
+                        "app_state={:?} confirmed_len={} live_len={} full_len={} error={}",
+                        snapshot.app_state,
+                        snapshot.buffer.confirmed_text.len(),
+                        snapshot.buffer.live_segment.len(),
+                        snapshot.buffer.full_text().len(),
+                        snapshot.runtime_error.is_some()
+                    ),
+                );
+            }
 
             if should_clear_runtime_error {
                 schedule_runtime_error_clear(event_tx_for_errors.clone());

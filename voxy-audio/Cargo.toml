@@ -11,5 +11,5 @@ readme = "README.md"
 keywords = ["audio", "capture", "abstraction", "stt"]
 
 [dependencies]
-minimp3 = "0.5"
+cpal = "0.15"
 thiserror = "1.0"

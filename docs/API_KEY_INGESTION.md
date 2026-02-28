@@ -3,17 +3,14 @@
 ## Goal
 Keep OpenAI API key ingestion deterministic, explicit, and isolated to `voxy-stt`.
 
-`xtask gui stt-e2e` now reuses `voxy-stt` key ingestion as the primary path.
+Runtime callers use `voxy-stt::config::load_api_key()`.
 
 ## Lookup Order
 1. `VOXY_OPENAI_API_KEY`
 2. `VOXY_OPENAI_API_KEY_FILE` (file contents, trimmed)
 3. `OPENAI_API_KEY`
-
-## Dev Convenience (`xtask gui stt-e2e`)
-If no key is found via normal env lookup, `xtask` falls back to reading:
-1. `.env`
-2. `.env.local` (overrides `.env`)
+4. `.env`
+5. `.env.local` (overrides `.env`)
 
 Supported keys in dotenv files:
 - `VOXY_OPENAI_API_KEY`

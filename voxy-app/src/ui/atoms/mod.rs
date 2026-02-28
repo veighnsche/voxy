@@ -3,7 +3,6 @@ pub mod copy_button;
 pub mod log_display;
 pub mod mic_button;
 pub mod model_dropdown;
-pub mod play_fixture_button;
 pub mod reset_button;
 pub mod state_badge;
 pub mod voxy_logo;

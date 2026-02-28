@@ -25,11 +25,8 @@ validate: doctor
 gui: doctor
     cargo run -p voxy-app
 
-fixtures-list:
-    cargo run -p xtask -- fixtures list-audio
-
-e2e-stt-live: doctor
-    cargo run -p xtask -- gui stt-e2e
+gui-trace every="10": doctor
+    VOXY_TRACE_PIPELINE=1 VOXY_TRACE_PIPELINE_EVERY={{every}} cargo run -p voxy-app
 
 # Fast UI loop: restarts app on source/config changes.
 # Requires one of: watchexec, cargo-watch.

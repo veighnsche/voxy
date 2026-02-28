@@ -5,3 +5,5 @@ pub mod event_mapper;
 pub mod protocol;
 pub mod session;
 pub mod state;
+
+pub use client::OpenAiRealtimeTranscriber;
