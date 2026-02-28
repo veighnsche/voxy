@@ -145,6 +145,13 @@ fn wire_ui_signals(
     }
 
     {
+        let event_tx = event_tx.clone();
+        widgets.close_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::VisibilityToggled);
+        });
+    }
+
+    {
         let model = Rc::clone(&model);
         let applying_text_update = Rc::clone(&applying_text_update);
 
