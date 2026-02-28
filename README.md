@@ -23,6 +23,7 @@ Intentionally not implemented yet:
 ## Workspace Layout
 
 - `voxy-app/`: GTK4 application shell (controller + render layer)
+  - Internal split: `app/` (orchestration), `wiring/` (runtime/channels), `ui/` (render), `diagnostics/` (smoke hooks)
 - `voxy-core/`: buffer model, event model, state machine, reducer
 - `voxy-stt/`: streaming transcriber abstraction + dummy implementation
 - `voxy-audio/`: audio input abstraction + no-op implementation
@@ -31,16 +32,23 @@ Intentionally not implemented yet:
 ## Requirements
 
 - Rust stable
-- GTK4 development packages visible to `pkg-config`
+- GTK4 + gtk4-layer-shell development packages visible to `pkg-config`
 
 Example Linux dependencies:
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev
+sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev
 
 # Fedora
-sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel
+sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel
+```
+
+## Reproducible Setup
+
+```bash
+just deps    # install system GTK dependencies for your distro
+just doctor  # verify toolchain + pkg-config modules
 ```
 
 ## Local Development
@@ -49,7 +57,25 @@ sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel
 cargo fmt --all
 cargo check -p voxy-core -p voxy-audio -p voxy-stt
 cargo test -p voxy-core
-cargo run -p voxy-app
+just gui
+```
+
+For UI iteration with auto-restart on file changes:
+
+```bash
+just dev
+```
+
+GUI smoke test via `xtask` (launch, signal, verify shutdown):
+
+```bash
+just validate
+# or directly:
+cargo run -p xtask -- gui smoke
+cargo run -p xtask -- gui lifecycle
+cargo run -p xtask -- gui reset-flow
+cargo run -p xtask -- gui pin-flow
+cargo run -p xtask -- gui pin-unsupported
 ```
 
 ## Architecture Docs
@@ -59,6 +85,8 @@ cargo run -p voxy-app
 - [Buffer Model](docs/BUFFER_MODEL.md)
 - [UX Rules](docs/UX_RULES.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Development Environment](docs/DEV_ENV.md)
+- [App Wiring](docs/APP_WIRING.md)
 
 ## Contributing and Governance
 
