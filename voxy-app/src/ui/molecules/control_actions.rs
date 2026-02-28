@@ -1,4 +1,4 @@
-use gtk4::{prelude::*, Align, Box as GtkBox, Button, ComboBoxText, Orientation};
+use gtk4::{prelude::*, Align, Box as GtkBox, Button, ComboBoxText, Orientation, Overlay};
 
 use crate::ui::atoms;
 
@@ -13,7 +13,7 @@ pub struct ControlActions {
 
 pub fn build() -> (GtkBox, ControlActions) {
     let row = GtkBox::new(Orientation::Horizontal, 8);
-    row.set_homogeneous(true);
+    row.set_hexpand(true);
 
     let mic_button = atoms::mic_button::build();
     let reset_button = atoms::reset_button::build();
@@ -21,25 +21,36 @@ pub fn build() -> (GtkBox, ControlActions) {
     let model_dropdown = atoms::model_dropdown::build();
     let close_button = atoms::close_button::build();
     let logo = atoms::voxy_logo::build();
+    logo.set_halign(Align::Center);
+    logo.set_valign(Align::Center);
+    logo.set_can_target(false);
 
     let left_slot = GtkBox::new(Orientation::Horizontal, 8);
     left_slot.set_halign(Align::Start);
     left_slot.append(&mic_button);
-    left_slot.append(&reset_button);
     left_slot.append(&copy_button);
     left_slot.append(&model_dropdown);
 
-    let center_slot = GtkBox::new(Orientation::Horizontal, 0);
-    center_slot.set_halign(Align::Center);
-    center_slot.append(&logo);
-
     let right_slot = GtkBox::new(Orientation::Horizontal, 8);
     right_slot.set_halign(Align::End);
+    right_slot.append(&reset_button);
     right_slot.append(&close_button);
 
-    row.append(&left_slot);
-    row.append(&center_slot);
-    row.append(&right_slot);
+    let spacer = GtkBox::new(Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+
+    let content = GtkBox::new(Orientation::Horizontal, 8);
+    content.set_hexpand(true);
+    content.append(&left_slot);
+    content.append(&spacer);
+    content.append(&right_slot);
+
+    let overlay = Overlay::new();
+    overlay.set_hexpand(true);
+    overlay.set_child(Some(&content));
+    overlay.add_overlay(&logo);
+
+    row.append(&overlay);
 
     (
         row,

@@ -22,13 +22,14 @@ pub fn build() -> FooterStatus {
 
     let left_slot = GtkBox::new(Orientation::Horizontal, 8);
     left_slot.set_halign(Align::Start);
-    left_slot.set_hexpand(true);
+    left_slot.set_hexpand(false);
     left_slot.append(&state_badge);
     left_slot.append(&recording_indicator.label);
     left_slot.append(&input_level_meter.container);
 
     let right_slot = GtkBox::new(Orientation::Horizontal, 0);
     right_slot.set_halign(Align::End);
+    right_slot.set_hexpand(true);
     right_slot.append(&log_display);
 
     container.append(&left_slot);

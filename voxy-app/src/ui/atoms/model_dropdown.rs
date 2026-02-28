@@ -10,5 +10,6 @@ pub fn build() -> ComboBoxText {
 
     dropdown.set_active_id(Some(TranscriptionModel::default().as_api_id()));
     dropdown.set_tooltip_text(Some("Transcription model"));
+    dropdown.set_size_request(110, -1);
     dropdown
 }

@@ -18,7 +18,7 @@ pub fn build(app: &Application) -> MainWindowTemplate {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Voxy (Scaffold)")
-        .default_width(720)
+        .default_width(360)
         .default_height(420)
         .build();
 
