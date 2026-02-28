@@ -2027,6 +2027,7 @@ dependencies = [
  "gtk4",
  "gtk4-layer-shell",
  "ksni",
+ "libc",
  "tokio",
  "voxy-audio",
  "voxy-core",

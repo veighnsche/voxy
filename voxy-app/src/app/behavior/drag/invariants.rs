@@ -48,12 +48,20 @@ fn window_top_left_from_pointer(pointer_now: Point, anchor: Point) -> Point {
 fn desktop_clamp(window_top_left: Point, window_size: Size, monitors: &[Rect]) -> Point {
     let desktop = desktop_extents(monitors);
     Point {
-        x: window_top_left.x.clamp(desktop.x, desktop.x + desktop.w - window_size.w),
-        y: window_top_left.y.clamp(desktop.y, desktop.y + desktop.h - window_size.h),
+        x: window_top_left
+            .x
+            .clamp(desktop.x, desktop.x + desktop.w - window_size.w),
+        y: window_top_left
+            .y
+            .clamp(desktop.y, desktop.y + desktop.h - window_size.h),
     }
 }
 
-fn target_monitor_for_window(monitors: &[Rect], top_left: Point, window_size: Size) -> MonitorTarget {
+fn target_monitor_for_window(
+    monitors: &[Rect],
+    top_left: Point,
+    window_size: Size,
+) -> MonitorTarget {
     let center = Point {
         x: top_left.x + window_size.w / 2,
         y: top_left.y + window_size.h / 2,
@@ -158,7 +166,10 @@ fn anchor_is_preserved_for_full_drag_sequence() {
             },
             anchor
         );
-        assert_eq!(window_now.x + window_size.w / 2, pointer_now.x - anchor.x + window_size.w / 2);
+        assert_eq!(
+            window_now.x + window_size.w / 2,
+            pointer_now.x - anchor.x + window_size.w / 2
+        );
     }
 }
 
@@ -250,7 +261,10 @@ fn desktop_clamp_limits_to_union_extents() {
     ];
     let window_size = Size { w: 340, h: 420 };
 
-    let far_off = Point { x: 10_000, y: -2_000 };
+    let far_off = Point {
+        x: 10_000,
+        y: -2_000,
+    };
     let clamped = desktop_clamp(far_off, window_size, &monitors);
     let extents = desktop_extents(&monitors);
 
