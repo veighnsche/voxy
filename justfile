@@ -23,6 +23,15 @@ validate: doctor
 gui: doctor
     cargo run -p voxy-app
 
+fixtures-fetch:
+    cargo run -p xtask -- fixtures fetch-audio
+
+fixtures-verify:
+    cargo run -p xtask -- fixtures verify-audio
+
+e2e-stt-live: doctor
+    cargo run -p xtask -- gui stt-e2e
+
 # Fast UI loop: restarts app on source/config changes.
 # Requires one of: watchexec, cargo-watch.
 dev: doctor

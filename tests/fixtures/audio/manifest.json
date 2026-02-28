@@ -1,0 +1,10 @@
+{
+  "fixture_name": "spoken-digit-zero",
+  "file_name": "hello.wav",
+  "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/master/recordings/0_george_0.wav",
+  "sha256": "228ab63fccdf262d2e05817b6ec918b15e7d9e4bfb6bb20183c46ae088405240",
+  "expected_substring": "zero",
+  "sample_rate_hz": 8000,
+  "channels": 1,
+  "encoding": "pcm16"
+}
