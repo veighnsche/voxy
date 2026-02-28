@@ -35,9 +35,14 @@
 - `Idle + MicToggled -> Recording`
 - `Recording + MicToggled -> Processing`
 - `Processing + CommitRequested -> Idle`
-- `Any State + ResetRequested -> Idle`
-- `LiveText(_)` does not change state
-- `CommitRequested` outside `Processing` does not change state
+- `Any State + ResetRequested -> Idle` (except `Error` handling below)
 - `Error(_)` only leaves error state on `ResetRequested`
+- `RuntimeError(_)`, `ErrorCleared`, `LiveText(_)`, `CopyRequested`, `QuitRequested`, `ShowRequested`, `HideRequested`, and `VisibilityToggled` do not change `AppState`
+- `CommitRequested` outside `Processing` does not change `AppState`
+
+## Orthogonal UI Preference State
+- Window visibility is tracked in `UiPrefs.visible`.
+- `VisibilityToggled`, `ShowRequested`, and `HideRequested` modify `UiPrefs.visible` in `CoreModel`.
+- Visibility changes do not mutate `AppState`.
 
 No implicit transitions are allowed.

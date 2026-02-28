@@ -12,27 +12,20 @@ pub fn transition(current: &AppState, event: &AppEvent) -> AppState {
     match current {
         AppState::Idle => match event {
             AppEvent::MicToggled => AppState::Recording,
-            AppEvent::ResetRequested => AppState::Idle,
-            AppEvent::LiveText(_) => AppState::Idle,
-            AppEvent::CommitRequested => AppState::Idle,
+            _ => AppState::Idle,
         },
         AppState::Recording => match event {
             AppEvent::MicToggled => AppState::Processing,
             AppEvent::ResetRequested => AppState::Idle,
-            AppEvent::LiveText(_) => AppState::Recording,
-            AppEvent::CommitRequested => AppState::Recording,
+            _ => AppState::Recording,
         },
         AppState::Processing => match event {
-            AppEvent::MicToggled => AppState::Processing,
-            AppEvent::ResetRequested => AppState::Idle,
-            AppEvent::LiveText(_) => AppState::Processing,
-            AppEvent::CommitRequested => AppState::Idle,
+            AppEvent::CommitRequested | AppEvent::ResetRequested => AppState::Idle,
+            _ => AppState::Processing,
         },
         AppState::Error(_) => match event {
             AppEvent::ResetRequested => AppState::Idle,
-            AppEvent::MicToggled => current.clone(),
-            AppEvent::LiveText(_) => current.clone(),
-            AppEvent::CommitRequested => current.clone(),
+            _ => current.clone(),
         },
     }
 }
