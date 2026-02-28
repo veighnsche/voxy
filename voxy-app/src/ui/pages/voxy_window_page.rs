@@ -36,9 +36,16 @@ pub fn build(app: &Application) -> Widgets {
 }
 
 pub fn render(widgets: &Widgets, view_model: &ViewModel, applying_text_update: &Cell<bool>) {
-    applying_text_update.set(true);
-    widgets.text_buffer.set_text(&view_model.text);
-    applying_text_update.set(false);
+    let current_text = widgets.text_buffer.text(
+        &widgets.text_buffer.start_iter(),
+        &widgets.text_buffer.end_iter(),
+        false,
+    );
+    if current_text.as_str() != view_model.text {
+        applying_text_update.set(true);
+        widgets.text_buffer.set_text(&view_model.text);
+        applying_text_update.set(false);
+    }
 
     crate::ui::atoms::mic_button::render(&widgets.mic_button, view_model.mic_on);
     crate::ui::atoms::state_badge::render(&widgets.state_badge, &view_model.state_badge_text);

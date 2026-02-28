@@ -11,6 +11,8 @@ pub fn start(
     mut after_drain: impl FnMut() + 'static,
 ) {
     gtk4::glib::timeout_add_local(EVENT_POLL_INTERVAL, move || {
+        let mut drained_any = false;
+
         loop {
             let event = match event_rx.borrow_mut().try_recv() {
                 Ok(event) => event,
@@ -21,9 +23,12 @@ pub fn start(
             };
 
             on_event(event);
+            drained_any = true;
         }
 
-        after_drain();
+        if drained_any {
+            after_drain();
+        }
         gtk4::glib::ControlFlow::Continue
     });
 }
