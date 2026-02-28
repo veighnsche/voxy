@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libgtk-4-dev \
+            libgraphene-1.0-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Check core crates
+        run: cargo check -p voxy-core -p voxy-audio -p voxy-stt
+
+      - name: Test core logic
+        run: cargo test -p voxy-core
+
+      - name: Clippy core crates
+        run: cargo clippy -p voxy-core -p voxy-audio -p voxy-stt --all-targets -- -D warnings
+
+      - name: Check GTK app
+        run: cargo check -p voxy-app
