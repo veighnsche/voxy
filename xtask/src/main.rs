@@ -25,8 +25,7 @@ struct FixturesArgs {
 
 #[derive(Debug, Subcommand)]
 enum FixturesCommand {
-    FetchAudio(tasks::fixtures::fetch_audio::FetchAudioArgs),
-    VerifyAudio(tasks::fixtures::verify_audio::VerifyAudioArgs),
+    ListAudio(tasks::fixtures::list_audio::ListAudioArgs),
 }
 
 #[derive(Debug, Args)]
@@ -52,8 +51,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Fixtures(fixtures) => match fixtures.command {
-            FixturesCommand::FetchAudio(args) => tasks::fixtures::fetch_audio::run(args),
-            FixturesCommand::VerifyAudio(args) => tasks::fixtures::verify_audio::run(args),
+            FixturesCommand::ListAudio(args) => tasks::fixtures::list_audio::run(args),
         },
         Command::Gui(gui) => match gui.command {
             GuiCommand::DragMathSim(args) => tasks::gui::drag_math_sim::run(args),

@@ -73,15 +73,15 @@ cargo run -p xtask -- gui visibility-window-guard
 ## STT Fixture Tasks
 
 ```bash
-just fixtures-fetch
-just fixtures-verify
+just fixtures-list
 ```
 
-- `fixtures-fetch`: downloads the pinned speech fixture from `tests/fixtures/audio/manifest.json`.
-- `fixtures-verify`: verifies fixture checksum and expected transcript metadata.
+- `fixtures-list`: lists required local fixture pairs (`test_1` through `test_5`) and transcript previews.
 
 Live STT e2e is opt-in:
 
 ```bash
 VOXY_E2E_LIVE=1 just e2e-stt-live
 ```
+
+API key lookup for `e2e-stt-live` uses `voxy-stt` ingestion first, then `.env` / `.env.local` fallback for local dev.

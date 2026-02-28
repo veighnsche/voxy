@@ -1,0 +1,1 @@
+I need to insert the ssh key of this device into github... can you help find the ssh key

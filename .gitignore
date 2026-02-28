@@ -8,5 +8,6 @@
 *.swp
 *.swo
 
-# Downloaded e2e fixture artifacts
-/tests/fixtures/audio/*.wav
+# Local environment secrets
+.env
+.env.local
