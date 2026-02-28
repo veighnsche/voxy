@@ -1,5 +1,9 @@
 use gtk4::ApplicationWindow;
-use gtk4_layer_shell::{is_supported as layer_shell_supported, KeyboardMode, Layer, LayerShell};
+use gtk4_layer_shell::{
+    is_supported as layer_shell_supported, Edge, KeyboardMode, Layer, LayerShell,
+};
+
+use crate::app::behavior::surface::placement;
 
 const LAYER_NAMESPACE: &str = "voxy";
 
@@ -28,5 +32,18 @@ impl LayerShellBackend {
         window.set_namespace(LAYER_NAMESPACE);
         window.set_keyboard_mode(KeyboardMode::OnDemand);
         window.set_layer(Layer::Top);
+        window.set_anchor(Edge::Top, true);
+        window.set_anchor(Edge::Left, true);
+        window.set_anchor(Edge::Bottom, false);
+        window.set_anchor(Edge::Right, false);
+        window.set_exclusive_zone(-1);
+    }
+
+    pub fn apply_position(&self, window: &ApplicationWindow, left: i32, top: i32) {
+        if !self.supported {
+            return;
+        }
+
+        placement::apply_anchored_position(window, left, top);
     }
 }

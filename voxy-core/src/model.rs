@@ -58,6 +58,11 @@ impl CoreModel {
             AppEvent::VisibilityToggled => self.reduce_visibility_toggle(),
             AppEvent::ShowRequested => self.reduce_show_requested(),
             AppEvent::HideRequested => self.reduce_hide_requested(),
+            AppEvent::WindowPositionUpdated { left, top } => {
+                self.ui_prefs.window_left = left.max(0);
+                self.ui_prefs.window_top = top.max(0);
+                Vec::new()
+            }
             AppEvent::CopyRequested => {
                 vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
             }
@@ -268,5 +273,16 @@ mod tests {
                 CoreCommand::QuitApplication,
             ]
         );
+    }
+
+    #[test]
+    fn window_position_updates_are_clamped_and_persisted() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::WindowPositionUpdated { left: -10, top: 42 });
+
+        assert!(commands.is_empty());
+        assert_eq!(model.ui_prefs.window_left, 0);
+        assert_eq!(model.ui_prefs.window_top, 42);
     }
 }

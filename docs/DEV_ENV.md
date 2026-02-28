@@ -67,3 +67,5 @@ cargo run -p xtask -- gui visibility-window-guard
 - `gui visibility-toggle-flow`: inject visibility toggle and verify GUI remains healthy.
 - `gui visibility-smoke`: extra visibility smoke coverage.
 - `gui visibility-window-guard`: repeated visibility toggles, ensure single-window invariant.
+
+`xtask` GUI runs force `GTK_THEME=Adwaita` for deterministic output and to avoid host-theme-specific GTK warnings.

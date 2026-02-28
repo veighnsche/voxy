@@ -6,7 +6,7 @@ use voxy_audio::{AudioInput, NoopAudioInput};
 use voxy_core::{AppEvent, CoreCommand};
 use voxy_stt::{DummyStreamingTranscriber, StreamingTranscriber};
 
-use crate::{app::window, tray};
+use crate::{app::behavior, tray};
 
 #[derive(Clone)]
 pub struct CommandBus {
@@ -73,10 +73,14 @@ impl CommandBus {
                     let _ = event_tx.send(event).await;
                 });
             }
-            CoreCommand::ShowWindow => window::visibility::show_window(&self.window),
-            CoreCommand::HideWindow => window::visibility::hide_window(&self.window),
+            CoreCommand::ShowWindow => {
+                behavior::visibility::window_visibility::show_window(&self.window)
+            }
+            CoreCommand::HideWindow => {
+                behavior::visibility::window_visibility::hide_window(&self.window)
+            }
             CoreCommand::CopyTextToClipboard(text) => {
-                window::clipboard::copy_text_to_clipboard(&self.window, &text)
+                behavior::system::clipboard::copy_text_to_clipboard(&self.window, &text)
             }
             CoreCommand::QuitApplication => {
                 tray::shutdown();

@@ -10,7 +10,10 @@ use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_core::{AppEvent, CoreModel};
 
 use crate::{
-    app::{lifecycle, view_sync, window::layer_shell::LayerShellBackend},
+    app::{
+        behavior::{drag, surface::layer_shell::LayerShellBackend, visibility::close_request},
+        lifecycle, view_sync,
+    },
     diagnostics, tray,
     ui::{self, Widgets},
     wiring::{self, command_bus::CommandBus},
@@ -57,8 +60,8 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         }
     });
 
-    crate::app::window::close_policy::install_hide_on_close(&widgets.window, event_tx.clone());
-    crate::app::window::drag::connect_drag_handle(&widgets.window, &widgets.drag_handle);
+    close_request::install_hide_on_close(&widgets.window, event_tx.clone());
+    drag::connect_drag_surface(&widgets.window, event_tx.clone());
 
     wire_ui_signals(
         widgets.clone(),
@@ -80,6 +83,7 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         widgets.clone(),
         Rc::clone(&model),
         Rc::clone(&applying_text_update),
+        Rc::clone(&layer_shell_backend),
         event_rx,
         event_tx.clone(),
         command_bus,
@@ -95,7 +99,12 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         ));
     }
 
-    render_ui(&widgets, &model, &applying_text_update);
+    render_ui(
+        &widgets,
+        &model,
+        &layer_shell_backend,
+        &applying_text_update,
+    );
     widgets.window.present();
 }
 
@@ -150,6 +159,7 @@ fn start_event_loop(
     widgets: Widgets,
     model: Rc<RefCell<CoreModel>>,
     applying_text_update: Rc<Cell<bool>>,
+    layer_shell_backend: Rc<LayerShellBackend>,
     event_rx: Rc<RefCell<mpsc::Receiver<AppEvent>>>,
     event_tx: mpsc::Sender<AppEvent>,
     command_bus: CommandBus,
@@ -161,6 +171,7 @@ fn start_event_loop(
     let widgets_for_render = widgets.clone();
     let model_for_render = Rc::clone(&model);
     let applying_for_render = Rc::clone(&applying_text_update);
+    let layer_shell_backend_for_render = Rc::clone(&layer_shell_backend);
 
     wiring::event_loop::start(
         event_rx,
@@ -175,7 +186,12 @@ fn start_event_loop(
             }
         },
         move || {
-            render_ui(&widgets_for_render, &model_for_render, &applying_for_render);
+            render_ui(
+                &widgets_for_render,
+                &model_for_render,
+                &layer_shell_backend_for_render,
+                &applying_for_render,
+            );
         },
     );
 }
@@ -190,7 +206,15 @@ fn schedule_runtime_error_clear(event_tx: mpsc::Sender<AppEvent>) {
 fn render_ui(
     widgets: &Widgets,
     model: &Rc<RefCell<CoreModel>>,
+    layer_shell_backend: &LayerShellBackend,
     applying_text_update: &Rc<Cell<bool>>,
 ) {
     view_sync::render(widgets, model, applying_text_update);
+
+    let model = model.borrow();
+    layer_shell_backend.apply_position(
+        &widgets.window,
+        model.ui_prefs.window_left,
+        model.ui_prefs.window_top,
+    );
 }

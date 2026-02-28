@@ -4,16 +4,23 @@ This document describes non-audio wiring inside `voxy-app`.
 
 ## Folder Structure
 - `voxy-app/src/app/`
+  - `behavior/`: UI-shell behavior primitives (GTK/window side effects)
+    - `drag/`
+      - `gesture.rs`: installs drag controller and emits `WindowPositionUpdated`
+      - `hit_test.rs`: blocks drag start over interactive widgets
+      - `session.rs`: drag state primitive (active + base margins)
+    - `surface/`
+      - `layer_shell.rs`: Wayland layer-shell setup and capability checks
+      - `placement.rs`: anchored margin placement helpers
+    - `visibility/`
+      - `close_request.rs`: close request policy (`close -> hide`)
+      - `window_visibility.rs`: show/hide helpers
+    - `system/`
+      - `clipboard.rs`: clipboard integration
   - `controller.rs`: activation bootstrap and top-level orchestration
   - `lifecycle.rs`: app id and GTK application flags resolution
   - `view_sync.rs`: convert `CoreModel` to `ViewModel` and render
   - `error_path.rs`: explicit helper for mapping runtime failures into `AppState::Error`
-  - `window/`: window-only side effects
-    - `layer_shell.rs`: Wayland layer-shell setup
-    - `visibility.rs`: show/hide helpers
-    - `close_policy.rs`: close request policy (`close -> hide`)
-    - `drag.rs`: drag-handle move behavior
-    - `clipboard.rs`: clipboard integration
 - `voxy-app/src/tray/`
   - `status_notifier.rs`: StatusNotifier (system tray) adapter
   - `menu.rs`: tray menu actions (`Show/Hide`, `Reset`, `Quit`)
@@ -40,6 +47,7 @@ This document describes non-audio wiring inside `voxy-app`.
 ## Guardrails
 - `ui/*` must stay render-only.
 - `app/*` may orchestrate, but should not contain domain transitions.
+- `app/behavior/*` owns GTK/window side effects only; no core state transitions.
 - `wiring/*` owns async/process plumbing.
 - Domain transitions and state rules belong in `voxy-core`.
 - Visibility state source of truth is `voxy-core::UiPrefs.visible`.

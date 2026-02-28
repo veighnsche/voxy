@@ -10,6 +10,8 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::workspace;
 
+const GUI_TEST_THEME: &str = "Adwaita";
+
 pub fn build_gui(root: &Path) -> Result<()> {
     println!("[xtask] building voxy-app");
 
@@ -96,7 +98,9 @@ fn spawn_gui_inner(
     command
         .current_dir(root)
         .env("VOXY_APP_ID", app_id)
-        .env("VOXY_NON_UNIQUE", "1");
+        .env("VOXY_NON_UNIQUE", "1")
+        // Keep GUI smoke checks deterministic across host themes.
+        .env("GTK_THEME", GUI_TEST_THEME);
 
     for (key, value) in extra_env {
         command.env(key, value);
