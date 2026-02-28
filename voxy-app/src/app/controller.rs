@@ -1,0 +1,196 @@
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::Arc,
+    time::Duration,
+};
+
+use gtk4::{prelude::*, Application};
+use tokio::{runtime::Runtime, sync::mpsc};
+use voxy_core::{AppEvent, CoreModel};
+
+use crate::{
+    app::{lifecycle, view_sync, window::layer_shell::LayerShellBackend},
+    diagnostics, tray,
+    ui::{self, Widgets},
+    wiring::{self, command_bus::CommandBus},
+};
+
+const RUNTIME_ERROR_CLEAR_DELAY: Duration = Duration::from_secs(2);
+const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
+
+pub fn run() {
+    let runtime = wiring::runtime::build();
+    let app = lifecycle::build_application();
+
+    app.connect_activate(move |app| activate(app, Arc::clone(&runtime)));
+    app.run();
+}
+
+fn activate(app: &Application, runtime: Arc<Runtime>) {
+    if let Some(existing_window) = app.windows().into_iter().next() {
+        existing_window.present();
+        return;
+    }
+
+    let widgets = ui::build(app);
+    diagnostics::smoke_hooks::mark_window_created();
+
+    let layer_shell_backend = Rc::new(LayerShellBackend::detect());
+    layer_shell_backend.configure_window(&widgets.window);
+
+    let model = Rc::new(RefCell::new(CoreModel::default()));
+    let applying_text_update = Rc::new(Cell::new(false));
+
+    let wiring::channels::AppChannels { event_tx, event_rx } =
+        wiring::channels::build_event_channels();
+    let event_rx = Rc::new(RefCell::new(event_rx));
+
+    let transcriber = Arc::new(voxy_stt::DummyStreamingTranscriber::new(event_tx.clone()));
+    let audio_input = Arc::new(voxy_audio::NoopAudioInput);
+
+    diagnostics::smoke_hooks::install(&widgets.window, &event_tx);
+    diagnostics::smoke_hooks::install_visibility_toggle_injector({
+        let event_tx = event_tx.clone();
+        move || {
+            let _ = event_tx.try_send(AppEvent::VisibilityToggled);
+        }
+    });
+
+    crate::app::window::close_policy::install_hide_on_close(&widgets.window, event_tx.clone());
+    crate::app::window::drag::connect_drag_handle(&widgets.window, &widgets.drag_handle);
+
+    wire_ui_signals(
+        widgets.clone(),
+        Rc::clone(&model),
+        Rc::clone(&applying_text_update),
+        event_tx.clone(),
+    );
+
+    let command_bus = CommandBus::new(
+        event_tx.clone(),
+        Arc::clone(&transcriber),
+        Arc::clone(&audio_input),
+        Arc::clone(&runtime),
+        widgets.window.clone(),
+        app.clone(),
+    );
+
+    start_event_loop(
+        widgets.clone(),
+        Rc::clone(&model),
+        Rc::clone(&applying_text_update),
+        event_rx,
+        event_tx.clone(),
+        command_bus,
+    );
+
+    if let Err(message) = tray::start(event_tx.clone()) {
+        let _ = event_tx.try_send(AppEvent::RuntimeError(message));
+    }
+
+    if !layer_shell_backend.is_supported() {
+        let _ = event_tx.try_send(AppEvent::RuntimeError(
+            LAYER_SHELL_UNSUPPORTED_MESSAGE.to_owned(),
+        ));
+    }
+
+    render_ui(&widgets, &model, &applying_text_update);
+    widgets.window.present();
+}
+
+fn wire_ui_signals(
+    widgets: Widgets,
+    model: Rc<RefCell<CoreModel>>,
+    applying_text_update: Rc<Cell<bool>>,
+    event_tx: mpsc::Sender<AppEvent>,
+) {
+    {
+        let event_tx = event_tx.clone();
+        widgets.mic_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::MicToggled);
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        widgets.reset_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::ResetRequested);
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        widgets.copy_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::CopyRequested);
+        });
+    }
+
+    {
+        let model = Rc::clone(&model);
+        let applying_text_update = Rc::clone(&applying_text_update);
+
+        widgets
+            .text_buffer
+            .connect_changed(move |buffer: &gtk4::TextBuffer| {
+                if applying_text_update.get() {
+                    return;
+                }
+
+                let text = buffer
+                    .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                    .to_string();
+
+                model.borrow_mut().apply_user_edit(text);
+            });
+    }
+}
+
+fn start_event_loop(
+    widgets: Widgets,
+    model: Rc<RefCell<CoreModel>>,
+    applying_text_update: Rc<Cell<bool>>,
+    event_rx: Rc<RefCell<mpsc::Receiver<AppEvent>>>,
+    event_tx: mpsc::Sender<AppEvent>,
+    command_bus: CommandBus,
+) {
+    let model_for_events = Rc::clone(&model);
+    let event_tx_for_errors = event_tx.clone();
+    let command_bus_for_events = command_bus.clone();
+
+    let widgets_for_render = widgets.clone();
+    let model_for_render = Rc::clone(&model);
+    let applying_for_render = Rc::clone(&applying_text_update);
+
+    wiring::event_loop::start(
+        event_rx,
+        move |event| {
+            let should_clear_runtime_error = matches!(&event, AppEvent::RuntimeError(_));
+
+            let commands = model_for_events.borrow_mut().reduce(event);
+            command_bus_for_events.execute(commands);
+
+            if should_clear_runtime_error {
+                schedule_runtime_error_clear(event_tx_for_errors.clone());
+            }
+        },
+        move || {
+            render_ui(&widgets_for_render, &model_for_render, &applying_for_render);
+        },
+    );
+}
+
+fn schedule_runtime_error_clear(event_tx: mpsc::Sender<AppEvent>) {
+    gtk4::glib::timeout_add_local(RUNTIME_ERROR_CLEAR_DELAY, move || {
+        let _ = event_tx.try_send(AppEvent::ErrorCleared);
+        gtk4::glib::ControlFlow::Break
+    });
+}
+
+fn render_ui(
+    widgets: &Widgets,
+    model: &Rc<RefCell<CoreModel>>,
+    applying_text_update: &Rc<Cell<bool>>,
+) {
+    view_sync::render(widgets, model, applying_text_update);
+}

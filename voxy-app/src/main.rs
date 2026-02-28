@@ -1,6 +1,9 @@
-mod controller;
+mod app;
+mod diagnostics;
+mod tray;
 mod ui;
+mod wiring;
 
 fn main() {
-    controller::run();
+    app::run();
 }

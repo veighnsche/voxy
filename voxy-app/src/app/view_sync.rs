@@ -1,0 +1,39 @@
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+use voxy_core::{AppState, CoreModel};
+
+use crate::ui::{self, ViewModel, Widgets};
+
+pub fn render(
+    widgets: &Widgets,
+    model: &Rc<RefCell<CoreModel>>,
+    applying_text_update: &Rc<Cell<bool>>,
+) {
+    let model = model.borrow();
+
+    let view_model = build_view_model(&model);
+    ui::render(widgets, &view_model, applying_text_update);
+}
+
+pub fn build_view_model(model: &CoreModel) -> ViewModel {
+    let mic_on = matches!(model.app_state, AppState::Recording);
+
+    let (state_text, app_error_message) = match &model.app_state {
+        AppState::Idle => ("Idle".to_owned(), None),
+        AppState::Recording => ("Recording".to_owned(), None),
+        AppState::Processing => ("Processing".to_owned(), None),
+        AppState::Error(message) => (format!("Error({message})"), Some(message.clone())),
+    };
+
+    let error_message = model.runtime_error.clone().or(app_error_message);
+
+    ViewModel {
+        text: model.buffer.full_text(),
+        mic_on,
+        state_badge_text: state_text,
+        error_message,
+    }
+}
