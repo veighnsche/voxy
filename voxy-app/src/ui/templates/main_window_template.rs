@@ -1,8 +1,11 @@
-use gtk4::{prelude::*, Application, ApplicationWindow, Box as GtkBox, Orientation};
+use gtk4::{prelude::*, Application, ApplicationWindow, Box as GtkBox, Orientation, Overlay};
 
-use crate::ui::organisms::{
-    self, control_bar::ControlBar, error_banner::ErrorBanner, footer_status::FooterStatus,
-    transcript_pane::TranscriptPane,
+use crate::ui::{
+    atoms,
+    organisms::{
+        self, control_bar::ControlBar, error_banner::ErrorBanner, footer_status::FooterStatus,
+        transcript_pane::TranscriptPane,
+    },
 };
 
 #[derive(Clone)]
@@ -12,6 +15,7 @@ pub struct MainWindowTemplate {
     pub error_banner: ErrorBanner,
     pub transcript_pane: TranscriptPane,
     pub footer_status: FooterStatus,
+    pub resize_handle: GtkBox,
 }
 
 pub fn build(app: &Application) -> MainWindowTemplate {
@@ -32,13 +36,18 @@ pub fn build(app: &Application) -> MainWindowTemplate {
     let error_banner = organisms::error_banner::build();
     let transcript_pane = organisms::transcript_pane::build();
     let footer_status = organisms::footer_status::build();
+    let resize_handle = atoms::resize_handle::build();
 
     root.append(&control_bar.container);
     root.append(&error_banner.revealer);
     root.append(&transcript_pane.container);
     root.append(&footer_status.container);
 
-    window.set_child(Some(&root));
+    let overlay = Overlay::new();
+    overlay.set_child(Some(&root));
+    overlay.add_overlay(&resize_handle);
+
+    window.set_child(Some(&overlay));
 
     MainWindowTemplate {
         window,
@@ -46,5 +55,6 @@ pub fn build(app: &Application) -> MainWindowTemplate {
         error_banner,
         transcript_pane,
         footer_status,
+        resize_handle,
     }
 }

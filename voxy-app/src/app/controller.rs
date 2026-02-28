@@ -12,7 +12,9 @@ use voxy_stt::TranscriptionModel;
 
 use crate::{
     app::{
-        behavior::{drag, surface::layer_shell::LayerShellBackend, visibility::close_request},
+        behavior::{
+            drag, resize, surface::layer_shell::LayerShellBackend, visibility::close_request,
+        },
         lifecycle, view_sync,
     },
     diagnostics, tray,
@@ -74,14 +76,39 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
     });
 
     close_request::install_hide_on_close(&widgets.window, event_tx.clone());
-    drag::connect_drag_surface(&widgets.window, {
-        let model = Rc::clone(&model);
-        let layer_shell_backend = Rc::clone(&layer_shell_backend);
-        let window = widgets.window.clone();
+    drag::connect_drag_surface(
+        &widgets.window,
+        {
+            let model = Rc::clone(&model);
+            let layer_shell_backend = Rc::clone(&layer_shell_backend);
+            let window = widgets.window.clone();
 
-        move |left, top| {
-            model.borrow_mut().set_window_position(left, top);
-            layer_shell_backend.apply_position(&window, left, top);
+            move |left, top| {
+                model.borrow_mut().set_window_position(left, top);
+                layer_shell_backend.apply_position(&window, left, top);
+            }
+        },
+        {
+            let event_tx = event_tx.clone();
+
+            move || {
+                diagnostics::pipeline_trace::log(
+                    "ui",
+                    "drag_surface.double_click -> AppEvent::MicToggled",
+                );
+                let _ = event_tx.try_send(AppEvent::MicToggled);
+            }
+        },
+    );
+
+    resize::connect_resize_handle(&widgets.window, widgets.resize_handle.upcast_ref(), {
+        let event_tx = event_tx.clone();
+        move |width, height| {
+            diagnostics::pipeline_trace::log(
+                "ui",
+                format!("resize_handle.drag -> AppEvent::WindowResizeRequested {width}x{height}"),
+            );
+            let _ = event_tx.try_send(AppEvent::WindowResizeRequested { width, height });
         }
     });
 

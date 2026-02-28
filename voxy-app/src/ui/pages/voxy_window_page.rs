@@ -1,7 +1,8 @@
 use std::cell::Cell;
 
 use gtk4::{
-    prelude::*, Application, ApplicationWindow, Button, ComboBoxText, Label, Revealer, TextBuffer,
+    prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, ComboBoxText, Label,
+    Revealer, TextBuffer,
 };
 
 use crate::ui::{molecules, organisms, templates, ViewModel};
@@ -9,6 +10,7 @@ use crate::ui::{molecules, organisms, templates, ViewModel};
 #[derive(Clone)]
 pub struct Widgets {
     pub window: ApplicationWindow,
+    pub resize_handle: GtkBox,
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
@@ -28,6 +30,7 @@ pub fn build(app: &Application) -> Widgets {
 
     Widgets {
         window: template.window,
+        resize_handle: template.resize_handle,
         mic_button: template.control_bar.actions.mic_button,
         reset_button: template.control_bar.actions.reset_button,
         copy_button: template.control_bar.actions.copy_button,

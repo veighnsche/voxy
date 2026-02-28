@@ -13,7 +13,8 @@ pub fn should_start_drag(window: &ApplicationWindow, x: f64, y: f64) -> bool {
 
 fn is_interactive_target(mut widget: Widget) -> bool {
     loop {
-        if widget.is::<Button>()
+        if widget.has_css_class("resize-handle")
+            || widget.is::<Button>()
             || widget.is::<ToggleButton>()
             || widget.is::<CheckButton>()
             || widget.is::<Switch>()

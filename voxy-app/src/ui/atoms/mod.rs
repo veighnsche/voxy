@@ -5,5 +5,6 @@ pub mod log_display;
 pub mod mic_button;
 pub mod model_dropdown;
 pub mod reset_button;
+pub mod resize_handle;
 pub mod state_badge;
 pub mod voxy_logo;
