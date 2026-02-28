@@ -28,12 +28,16 @@ pub fn build() -> (GtkBox, ControlActions) {
     let left_slot = GtkBox::new(Orientation::Horizontal, 8);
     left_slot.set_halign(Align::Start);
     left_slot.append(&mic_button);
-    left_slot.append(&copy_button);
     left_slot.append(&model_dropdown);
+
+    let copy_reset_group = GtkBox::new(Orientation::Horizontal, 0);
+    copy_reset_group.add_css_class("linked");
+    copy_reset_group.append(&copy_button);
+    copy_reset_group.append(&reset_button);
 
     let right_slot = GtkBox::new(Orientation::Horizontal, 8);
     right_slot.set_halign(Align::End);
-    right_slot.append(&reset_button);
+    right_slot.append(&copy_reset_group);
     right_slot.append(&close_button);
 
     let spacer = GtkBox::new(Orientation::Horizontal, 0);

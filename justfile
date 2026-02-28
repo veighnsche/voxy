@@ -9,8 +9,17 @@ deps:
 doctor:
     ./scripts/dev/doctor.sh
 
-install: doctor
-    ./scripts/dev/install-desktop.sh
+make target action:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "{{target}}" == "rpm" && "{{action}}" == "package" ]]; then
+      exec ./scripts/release/build-rpm.sh
+    fi
+
+    echo "Unsupported make target: {{target}} {{action}}" >&2
+    echo "Usage: just make rpm package" >&2
+    exit 1
 
 validate: doctor
     cargo fmt --all -- --check
