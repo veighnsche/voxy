@@ -1,13 +1,14 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 use gtk4::{prelude::*, Application};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_core::{AppEvent, CoreModel};
+use voxy_stt::TranscriptionModel;
 
 use crate::{
     app::{
@@ -72,12 +73,7 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         }
     });
 
-    wire_ui_signals(
-        widgets.clone(),
-        Rc::clone(&model),
-        Rc::clone(&applying_text_update),
-        event_tx.clone(),
-    );
+    let selected_model = Arc::new(Mutex::new(TranscriptionModel::default()));
 
     let command_bus = CommandBus::new(
         event_tx.clone(),
@@ -86,6 +82,15 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         Arc::clone(&runtime),
         widgets.window.clone(),
         app.clone(),
+        Arc::clone(&selected_model),
+    );
+
+    wire_ui_signals(
+        widgets.clone(),
+        Rc::clone(&model),
+        Rc::clone(&applying_text_update),
+        event_tx.clone(),
+        command_bus.clone(),
     );
 
     start_event_loop(
@@ -122,6 +127,7 @@ fn wire_ui_signals(
     model: Rc<RefCell<CoreModel>>,
     applying_text_update: Rc<Cell<bool>>,
     event_tx: mpsc::Sender<AppEvent>,
+    command_bus: CommandBus,
 ) {
     {
         let event_tx = event_tx.clone();
@@ -141,6 +147,19 @@ fn wire_ui_signals(
         let event_tx = event_tx.clone();
         widgets.copy_button.connect_clicked(move |_| {
             let _ = event_tx.try_send(AppEvent::CopyRequested);
+        });
+    }
+
+    {
+        let command_bus = command_bus.clone();
+        widgets.model_dropdown.connect_changed(move |dropdown| {
+            let Some(model_id) = dropdown.active_id() else {
+                return;
+            };
+            let Some(model) = TranscriptionModel::from_api_id(model_id.as_str()) else {
+                return;
+            };
+            command_bus.set_transcription_model(model);
         });
     }
 

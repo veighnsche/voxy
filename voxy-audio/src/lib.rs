@@ -1,13 +1,9 @@
-pub trait AudioInput: Send + Sync {
-    fn start(&self);
-    fn stop(&self);
-}
+pub mod cpal_source;
+pub mod frame;
+pub mod noop;
+pub mod source;
 
-#[derive(Debug, Default)]
-pub struct NoopAudioInput;
-
-impl AudioInput for NoopAudioInput {
-    fn start(&self) {}
-
-    fn stop(&self) {}
-}
+pub use cpal_source::CpalAudioInput;
+pub use frame::PcmFrame;
+pub use noop::NoopAudioInput;
+pub use source::{AudioFrameSource, AudioInput};

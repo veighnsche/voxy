@@ -1,6 +1,8 @@
 use std::cell::Cell;
 
-use gtk4::{prelude::*, Application, ApplicationWindow, Button, Label, Revealer, TextBuffer};
+use gtk4::{
+    prelude::*, Application, ApplicationWindow, Button, ComboBoxText, Label, Revealer, TextBuffer,
+};
 
 use crate::ui::{molecules, organisms, templates, ViewModel};
 
@@ -10,6 +12,7 @@ pub struct Widgets {
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
+    pub model_dropdown: ComboBoxText,
     pub close_button: Button,
     pub text_buffer: TextBuffer,
     pub state_badge: Label,
@@ -26,6 +29,7 @@ pub fn build(app: &Application) -> Widgets {
         mic_button: template.control_bar.actions.mic_button,
         reset_button: template.control_bar.actions.reset_button,
         copy_button: template.control_bar.actions.copy_button,
+        model_dropdown: template.control_bar.actions.model_dropdown,
         close_button: template.control_bar.actions.close_button,
         text_buffer: template.transcript_pane.text_buffer,
         state_badge: template.footer_status.state_badge,

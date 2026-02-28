@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use gtk4::{prelude::*, Application, ApplicationWindow};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_audio::{AudioInput, NoopAudioInput};
 use voxy_core::{AppEvent, CoreCommand};
-use voxy_stt::{DummyStreamingTranscriber, StreamingTranscriber};
+use voxy_stt::{DummyStreamingTranscriber, StreamingTranscriber, TranscriptionModel};
 
 use crate::{app::behavior, tray};
 
@@ -16,6 +16,7 @@ pub struct CommandBus {
     runtime: Arc<Runtime>,
     window: ApplicationWindow,
     app: Application,
+    selected_model: Arc<Mutex<TranscriptionModel>>,
 }
 
 impl CommandBus {
@@ -26,6 +27,7 @@ impl CommandBus {
         runtime: Arc<Runtime>,
         window: ApplicationWindow,
         app: Application,
+        selected_model: Arc<Mutex<TranscriptionModel>>,
     ) -> Self {
         Self {
             event_tx,
@@ -34,7 +36,16 @@ impl CommandBus {
             runtime,
             window,
             app,
+            selected_model,
         }
+    }
+
+    pub fn set_transcription_model(&self, model: TranscriptionModel) {
+        let mut selected_model = self
+            .selected_model
+            .lock()
+            .expect("selected transcription model mutex poisoned");
+        *selected_model = model;
     }
 
     pub fn execute(&self, commands: Vec<CoreCommand>) {
@@ -49,8 +60,12 @@ impl CommandBus {
             CoreCommand::StopAudioInput => self.audio_input.stop(),
             CoreCommand::StartTranscriber => {
                 let transcriber = Arc::clone(&self.transcriber);
+                let model = *self
+                    .selected_model
+                    .lock()
+                    .expect("selected transcription model mutex poisoned");
                 self.runtime.spawn(async move {
-                    transcriber.start().await;
+                    transcriber.start(model).await;
                 });
             }
             CoreCommand::StopTranscriber => {
