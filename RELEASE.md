@@ -1,5 +1,10 @@
 # Release Checklist
 
+For store/distribution publishing (Flathub, AUR, COPR), use:
+- [docs/PUBLISHING.md](docs/PUBLISHING.md)
+
+## Core source release
+
 1. Update `CHANGELOG.md` under a new version heading.
 2. Confirm version in workspace/package manifests.
 3. Run locally:
