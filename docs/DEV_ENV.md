@@ -47,6 +47,8 @@ just dev
 
 You can tune live-text responsiveness with environment variables:
 
+- `VOXY_STT_BACKEND` (default `openai_api`): STT backend selector.
+  - Supported values: `openai_api`, `openai`, `dummy`
 - `VOXY_UI_EVENT_POLL_MS` (default `16`): GTK event-loop drain cadence.
 - `VOXY_STT_SOURCE_POLL_MS` (default `20`): realtime uplink source polling cadence.
 - `VOXY_AUDIO_FRAME_MS` (default `20`): CPAL frame duration per audio chunk.
@@ -55,6 +57,7 @@ You can tune live-text responsiveness with environment variables:
 
 Settings persistence:
 - Silence timeout is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
+- Silence gate threshold (IN meter click position) is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
 - If `XDG_CONFIG_HOME` is unset, fallback path is `~/.config/voxy/settings.json`.
 
 Example:

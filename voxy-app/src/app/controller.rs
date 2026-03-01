@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gtk4::{prelude::*, Application};
+use gtk4::{gdk, prelude::*, Application, EventControllerKey, PropagationPhase};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_core::{AppEvent, AppState, CoreModel};
 use voxy_stt::TranscriptionModel;
@@ -30,6 +30,9 @@ const MAX_RECORDING_SECONDS_ENV: &str = "VOXY_MAX_RECORDING_SECONDS";
 const DEFAULT_MAX_RECORDING_SECONDS: u64 = 30 * 60;
 const SILENCE_AUTO_STOP_SECONDS_ENV: &str = "VOXY_SILENCE_AUTO_STOP_SECONDS";
 const DEFAULT_SILENCE_AUTO_STOP_SECONDS: u64 = 10;
+const SILENCE_GATE_RELEASE_HYSTERESIS: f32 = 0.05;
+const SILENCE_RESET_DEBOUNCE: Duration = Duration::from_millis(300);
+const GATE_THRESHOLD_SAVE_EPSILON: f32 = 0.0005;
 const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
 
 pub fn run() {
@@ -70,6 +73,30 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         }
     };
     model.borrow_mut().ui_prefs.silence_auto_stop_seconds = silence_timeout;
+    let default_gate_threshold =
+        crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
+    let gate_threshold = match settings_store::load_silence_gate_threshold() {
+        Ok(Some(value)) => {
+            let clamped = value.clamp(0.0, 1.0);
+            diagnostics::pipeline_trace::log(
+                "settings",
+                format!("loaded silence_gate_threshold={clamped:.3} from persisted settings"),
+            );
+            clamped
+        }
+        Ok(None) => default_gate_threshold,
+        Err(error) => {
+            diagnostics::pipeline_trace::log(
+                "settings",
+                format!("load silence_gate_threshold failed: {error}"),
+            );
+            default_gate_threshold
+        }
+    };
+    crate::ui::atoms::input_level_meter::set_gate_threshold(
+        &widgets.input_level_meter,
+        gate_threshold,
+    );
     let applying_text_update = Rc::new(Cell::new(false));
 
     let wiring::channels::AppChannels { event_tx, event_rx } =
@@ -144,6 +171,7 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         Arc::clone(&runtime),
         widgets.window.clone(),
         app.clone(),
+        layer_shell_backend.as_ref().clone(),
         Arc::clone(&selected_model),
     );
 
@@ -285,6 +313,26 @@ fn wire_ui_signals(
     }
 
     {
+        let event_tx = event_tx.clone();
+        let key_controller = EventControllerKey::new();
+        key_controller.set_propagation_phase(PropagationPhase::Capture);
+        key_controller.connect_key_pressed(move |_, key, _, state| {
+            let ctrl_down = state.contains(gdk::ModifierType::CONTROL_MASK);
+            if ctrl_down && key == gdk::Key::space {
+                diagnostics::pipeline_trace::log(
+                    "ui",
+                    "shortcut Ctrl+Space -> AppEvent::MicToggled",
+                );
+                let _ = event_tx.try_send(AppEvent::MicToggled);
+                return gtk4::glib::Propagation::Stop;
+            }
+
+            gtk4::glib::Propagation::Proceed
+        });
+        widgets.window.add_controller(key_controller);
+    }
+
+    {
         let model = Rc::clone(&model);
         let applying_text_update = Rc::clone(&applying_text_update);
 
@@ -416,7 +464,10 @@ fn start_input_level_meter_loop(
     let mut recording_started_at: Option<Instant> = None;
     let mut max_duration_triggered = false;
     let mut below_gate_started_at: Option<Instant> = None;
+    let mut above_gate_started_at: Option<Instant> = None;
     let mut silence_duration_triggered = false;
+    let mut last_persisted_gate_threshold =
+        crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
 
     gtk4::glib::timeout_add_local(INPUT_LEVEL_POLL_INTERVAL, move || {
         let (active, silence_timeout_seconds) = {
@@ -427,49 +478,85 @@ fn start_input_level_meter_loop(
             )
         };
         let level = audio_input.latest_input_level();
+        let gate_threshold =
+            crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
+        if (gate_threshold - last_persisted_gate_threshold).abs() > GATE_THRESHOLD_SAVE_EPSILON {
+            match settings_store::save_silence_gate_threshold(gate_threshold) {
+                Ok(()) => diagnostics::pipeline_trace::log(
+                    "settings",
+                    format!("saved silence_gate_threshold={gate_threshold:.3}"),
+                ),
+                Err(error) => diagnostics::pipeline_trace::log(
+                    "settings",
+                    format!("failed to save silence_gate_threshold={gate_threshold:.3}: {error}"),
+                ),
+            }
+            last_persisted_gate_threshold = gate_threshold;
+        }
         let mut silence_seconds_remaining: Option<u64> = None;
 
         if active {
             if silence_timeout_seconds > 0 {
                 let duration = Duration::from_secs(silence_timeout_seconds);
                 let visual_level = crate::ui::atoms::input_level_meter::visual_level(level);
-                let gate_threshold =
-                    crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
-                let under_gate = visual_level < gate_threshold;
+                let gate_release_threshold =
+                    (gate_threshold + SILENCE_GATE_RELEASE_HYSTERESIS).clamp(0.0, 1.0);
 
-                if under_gate {
-                    if below_gate_started_at.is_none() {
+                if below_gate_started_at.is_none() {
+                    if visual_level < gate_threshold {
                         below_gate_started_at = Some(Instant::now());
+                        above_gate_started_at = None;
                         silence_duration_triggered = false;
                     }
-
-                    if let Some(started_at) = below_gate_started_at {
-                        let elapsed = started_at.elapsed();
-                        if !silence_duration_triggered && elapsed >= duration {
-                            silence_duration_triggered = true;
-                            diagnostics::pipeline_trace::log(
-                                "guard",
-                                format!(
-                                    "silence_auto_stop_reached={}s -> AppEvent::MicToggled",
-                                    duration.as_secs()
-                                ),
-                            );
-                            let _ = event_tx.try_send(AppEvent::MicToggled);
-                        } else if !silence_duration_triggered {
-                            let remaining = duration.saturating_sub(elapsed);
-                            silence_seconds_remaining = Some(remaining.as_secs().max(1));
+                } else if visual_level >= gate_release_threshold {
+                    if let Some(above_started_at) = above_gate_started_at {
+                        if above_started_at.elapsed() >= SILENCE_RESET_DEBOUNCE {
+                            below_gate_started_at = None;
+                            above_gate_started_at = None;
+                            silence_duration_triggered = false;
                         }
+                    } else {
+                        above_gate_started_at = Some(Instant::now());
                     }
                 } else {
-                    below_gate_started_at = None;
-                    silence_duration_triggered = false;
+                    above_gate_started_at = None;
+                }
+
+                if let Some(started_at) = below_gate_started_at {
+                    let elapsed = started_at.elapsed();
+                    if !silence_duration_triggered && elapsed >= duration {
+                        diagnostics::pipeline_trace::log(
+                            "guard",
+                            format!(
+                                "silence_auto_stop_reached={}s -> AppEvent::MicToggled",
+                                duration.as_secs()
+                            ),
+                        );
+                        match event_tx.try_send(AppEvent::MicToggled) {
+                            Ok(()) => {
+                                silence_duration_triggered = true;
+                            }
+                            Err(error) => {
+                                diagnostics::pipeline_trace::log(
+                                    "guard",
+                                    format!("silence_auto_stop_send_failed={error}"),
+                                );
+                                silence_seconds_remaining = Some(0);
+                            }
+                        }
+                    } else if !silence_duration_triggered {
+                        let remaining = duration.saturating_sub(elapsed);
+                        silence_seconds_remaining = Some(remaining.as_secs().max(1));
+                    }
                 }
             } else {
                 below_gate_started_at = None;
+                above_gate_started_at = None;
                 silence_duration_triggered = false;
             }
         } else {
             below_gate_started_at = None;
+            above_gate_started_at = None;
             silence_duration_triggered = false;
         }
 
@@ -490,7 +577,6 @@ fn start_input_level_meter_loop(
                 (max_recording_duration, recording_started_at)
             {
                 if !max_duration_triggered && started_at.elapsed() >= duration {
-                    max_duration_triggered = true;
                     diagnostics::pipeline_trace::log(
                         "guard",
                         format!(
@@ -498,7 +584,17 @@ fn start_input_level_meter_loop(
                             duration.as_secs()
                         ),
                     );
-                    let _ = event_tx.try_send(AppEvent::MicToggled);
+                    match event_tx.try_send(AppEvent::MicToggled) {
+                        Ok(()) => {
+                            max_duration_triggered = true;
+                        }
+                        Err(error) => {
+                            diagnostics::pipeline_trace::log(
+                                "guard",
+                                format!("max_recording_duration_send_failed={error}"),
+                            );
+                        }
+                    }
                 }
             }
         } else {

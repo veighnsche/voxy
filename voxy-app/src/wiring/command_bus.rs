@@ -7,7 +7,10 @@ use voxy_core::{AppEvent, CoreCommand};
 use voxy_stt::{StreamingTranscriber, TranscriberSessionConfig, TranscriptionModel};
 
 use crate::{
-    app::behavior, diagnostics::pipeline_trace, tray, wiring::transcriber::AppTranscriber,
+    app::behavior::{self, surface::layer_shell::MonitorCycleOutcome},
+    diagnostics::pipeline_trace,
+    tray,
+    wiring::transcriber::AppTranscriber,
 };
 
 #[derive(Clone)]
@@ -18,6 +21,7 @@ pub struct CommandBus {
     runtime: Arc<Runtime>,
     window: ApplicationWindow,
     app: Application,
+    layer_shell_backend: behavior::surface::layer_shell::LayerShellBackend,
     selected_model: Arc<Mutex<TranscriptionModel>>,
 }
 
@@ -29,6 +33,7 @@ impl CommandBus {
         runtime: Arc<Runtime>,
         window: ApplicationWindow,
         app: Application,
+        layer_shell_backend: behavior::surface::layer_shell::LayerShellBackend,
         selected_model: Arc<Mutex<TranscriptionModel>>,
     ) -> Self {
         Self {
@@ -38,6 +43,7 @@ impl CommandBus {
             runtime,
             window,
             app,
+            layer_shell_backend,
             selected_model,
         }
     }
@@ -167,6 +173,44 @@ impl CommandBus {
             }
             CoreCommand::ResizeWindow { width, height } => {
                 self.window.set_default_size(width, height);
+            }
+            CoreCommand::MoveWindowToNextScreen => {
+                match self
+                    .layer_shell_backend
+                    .move_window_to_next_monitor(&self.window)
+                {
+                    Ok(MonitorCycleOutcome::Moved {
+                        from_index,
+                        to_index,
+                        monitor_count,
+                    }) => {
+                        self.emit_log_message(format!(
+                            "Moved to screen {}/{}",
+                            to_index + 1,
+                            monitor_count
+                        ));
+                        pipeline_trace::log(
+                            "command",
+                            format!(
+                                "MoveWindowToNextScreen moved from={} to={} total={}",
+                                from_index + 1,
+                                to_index + 1,
+                                monitor_count
+                            ),
+                        );
+                    }
+                    Ok(MonitorCycleOutcome::SingleMonitor) => {
+                        self.emit_log_message("Only one screen detected; nothing to move");
+                        pipeline_trace::log("command", "MoveWindowToNextScreen single_monitor");
+                    }
+                    Err(error) => {
+                        self.emit_runtime_error(error.clone());
+                        pipeline_trace::log(
+                            "command",
+                            format!("MoveWindowToNextScreen error={error}"),
+                        );
+                    }
+                }
             }
             CoreCommand::CopyTextToClipboard(text) => {
                 behavior::system::clipboard::copy_text_to_clipboard(&self.window, &text);

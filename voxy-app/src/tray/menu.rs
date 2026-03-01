@@ -12,6 +12,14 @@ pub(super) fn build_menu_items() -> Vec<MenuItem<VoxyTray>> {
         }
         .into(),
         StandardItem {
+            label: "Move To Next Screen".to_owned(),
+            activate: Box::new(|tray: &mut VoxyTray| {
+                tray.emit(AppEvent::WindowMoveToNextScreenRequested)
+            }),
+            ..Default::default()
+        }
+        .into(),
+        StandardItem {
             label: "Reset".to_owned(),
             activate: Box::new(|tray: &mut VoxyTray| tray.emit(AppEvent::ResetRequested)),
             ..Default::default()

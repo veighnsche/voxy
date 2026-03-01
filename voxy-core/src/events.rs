@@ -5,6 +5,7 @@ pub enum AppEvent {
     WindowLargerRequested,
     WindowSmallerRequested,
     WindowResizeRequested { width: i32, height: i32 },
+    WindowMoveToNextScreenRequested,
     FixtureInjectRequested(u8),
     LogMessage(String),
     LiveText(String),

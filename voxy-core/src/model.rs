@@ -18,6 +18,7 @@ pub enum CoreCommand {
     ShowWindow,
     HideWindow,
     ResizeWindow { width: i32, height: i32 },
+    MoveWindowToNextScreen,
     CopyTextToClipboard(String),
     InjectFixtureAudio(u8),
     QuitApplication,
@@ -60,6 +61,10 @@ impl CoreModel {
             }
             AppEvent::WindowResizeRequested { width, height } => {
                 self.resize_window_to(width, height)
+            }
+            AppEvent::WindowMoveToNextScreenRequested => {
+                self.log_line = "Move to next screen requested".to_owned();
+                vec![CoreCommand::MoveWindowToNextScreen]
             }
             AppEvent::LogMessage(message) => {
                 self.log_line = message;
@@ -477,6 +482,15 @@ mod tests {
                 height: 1280
             }]
         );
+    }
+
+    #[test]
+    fn window_move_to_next_screen_requested_emits_move_command() {
+        let mut model = CoreModel::default();
+
+        let commands = model.reduce(AppEvent::WindowMoveToNextScreenRequested);
+
+        assert_eq!(commands, vec![CoreCommand::MoveWindowToNextScreen]);
     }
 
     #[test]

@@ -14,6 +14,7 @@ const GATE_HIGH_OFFSET_DELTA: f32 = 0.15;
 pub struct InputLevelMeter {
     pub container: GtkBox,
     bar: LevelBar,
+    threshold_line: DrawingArea,
     gate_threshold: Rc<Cell<f32>>,
     countdown_label: Label,
 }
@@ -99,6 +100,7 @@ pub fn build() -> InputLevelMeter {
     InputLevelMeter {
         container,
         bar,
+        threshold_line,
         gate_threshold,
         countdown_label,
     }
@@ -135,6 +137,13 @@ pub fn render(
 
 pub fn gate_threshold(meter: &InputLevelMeter) -> f32 {
     meter.gate_threshold.get().clamp(MIN_LEVEL, MAX_LEVEL)
+}
+
+pub fn set_gate_threshold(meter: &InputLevelMeter, threshold: f32) {
+    let clamped = threshold.clamp(MIN_LEVEL, MAX_LEVEL);
+    meter.gate_threshold.set(clamped);
+    set_gate_offsets(&meter.bar, clamped);
+    meter.threshold_line.queue_draw();
 }
 
 pub fn visual_level(raw_level: f32) -> f32 {

@@ -13,52 +13,29 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct SettingsFile {
     silence_auto_stop_seconds: Option<u64>,
+    silence_gate_threshold: Option<f32>,
 }
 
 pub fn load_silence_auto_stop_seconds() -> Result<Option<u64>, String> {
-    let Some(path) = settings_file_path() else {
-        return Ok(None);
-    };
+    Ok(load_settings_file()?.silence_auto_stop_seconds)
+}
 
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read settings file '{}': {error}", path.display()))?;
-    let parsed: SettingsFile = serde_json::from_str(&raw).map_err(|error| {
-        format!(
-            "failed to parse settings file '{}': {error}",
-            path.display()
-        )
-    })?;
-
-    Ok(parsed.silence_auto_stop_seconds)
+pub fn load_silence_gate_threshold() -> Result<Option<f32>, String> {
+    Ok(load_settings_file()?
+        .silence_gate_threshold
+        .map(|value| value.clamp(0.0, 1.0)))
 }
 
 pub fn save_silence_auto_stop_seconds(seconds: u64) -> Result<(), String> {
-    let Some(path) = settings_file_path() else {
-        return Err("no config directory available (missing XDG_CONFIG_HOME and HOME)".to_owned());
-    };
+    let mut payload = load_settings_file()?;
+    payload.silence_auto_stop_seconds = Some(seconds);
+    save_settings_file(&payload)
+}
 
-    ensure_parent_dir(&path)?;
-
-    let payload = SettingsFile {
-        silence_auto_stop_seconds: Some(seconds),
-    };
-    let json = serde_json::to_string_pretty(&payload).map_err(|error| {
-        format!(
-            "failed to serialize settings file payload '{}': {error}",
-            path.display()
-        )
-    })?;
-
-    fs::write(&path, format!("{json}\n")).map_err(|error| {
-        format!(
-            "failed to write settings file '{}': {error}",
-            path.display()
-        )
-    })
+pub fn save_silence_gate_threshold(threshold: f32) -> Result<(), String> {
+    let mut payload = load_settings_file()?;
+    payload.silence_gate_threshold = Some(threshold.clamp(0.0, 1.0));
+    save_settings_file(&payload)
 }
 
 pub fn settings_file_path() -> Option<PathBuf> {
@@ -89,6 +66,49 @@ fn ensure_parent_dir(path: &Path) -> Result<(), String> {
         format!(
             "failed to create settings directory '{}': {error}",
             parent.display()
+        )
+    })
+}
+
+fn load_settings_file() -> Result<SettingsFile, String> {
+    let Some(path) = settings_file_path() else {
+        return Ok(SettingsFile::default());
+    };
+
+    if !path.exists() {
+        return Ok(SettingsFile::default());
+    }
+
+    let raw = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read settings file '{}': {error}", path.display()))?;
+    let parsed: SettingsFile = serde_json::from_str(&raw).map_err(|error| {
+        format!(
+            "failed to parse settings file '{}': {error}",
+            path.display()
+        )
+    })?;
+
+    Ok(parsed)
+}
+
+fn save_settings_file(payload: &SettingsFile) -> Result<(), String> {
+    let Some(path) = settings_file_path() else {
+        return Err("no config directory available (missing XDG_CONFIG_HOME and HOME)".to_owned());
+    };
+
+    ensure_parent_dir(&path)?;
+
+    let json = serde_json::to_string_pretty(payload).map_err(|error| {
+        format!(
+            "failed to serialize settings file payload '{}': {error}",
+            path.display()
+        )
+    })?;
+
+    fs::write(&path, format!("{json}\n")).map_err(|error| {
+        format!(
+            "failed to write settings file '{}': {error}",
+            path.display()
         )
     })
 }
