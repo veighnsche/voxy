@@ -76,6 +76,27 @@ impl CoreModel {
                 self.app_state = transition(&self.app_state, &AppEvent::CommitRequested);
                 Vec::new()
             }
+            AppEvent::SettingsToggled => {
+                self.ui_prefs.settings_open = !self.ui_prefs.settings_open;
+                self.log_line = if self.ui_prefs.settings_open {
+                    "Settings opened".to_owned()
+                } else {
+                    "Settings closed".to_owned()
+                };
+                Vec::new()
+            }
+            AppEvent::SilenceAutoStopSecondsChanged(seconds) => {
+                self.ui_prefs.silence_auto_stop_seconds = seconds.min(600);
+                self.log_line = if self.ui_prefs.silence_auto_stop_seconds == 0 {
+                    "Silence auto-stop disabled".to_owned()
+                } else {
+                    format!(
+                        "Silence auto-stop set to {}s",
+                        self.ui_prefs.silence_auto_stop_seconds
+                    )
+                };
+                Vec::new()
+            }
             AppEvent::VisibilityToggled => self.reduce_visibility_toggle(),
             AppEvent::ShowRequested => self.reduce_show_requested(),
             AppEvent::HideRequested => self.reduce_hide_requested(),
@@ -246,6 +267,34 @@ mod tests {
         assert_eq!(commands, vec![CoreCommand::HideWindow]);
         assert_eq!(model.app_state, AppState::Recording);
         assert!(!model.ui_prefs.visible);
+    }
+
+    #[test]
+    fn settings_toggle_flips_settings_panel_preference() {
+        let mut model = CoreModel::default();
+        assert!(!model.ui_prefs.settings_open);
+
+        let commands = model.reduce(AppEvent::SettingsToggled);
+        assert!(commands.is_empty());
+        assert!(model.ui_prefs.settings_open);
+
+        let commands = model.reduce(AppEvent::SettingsToggled);
+        assert!(commands.is_empty());
+        assert!(!model.ui_prefs.settings_open);
+    }
+
+    #[test]
+    fn silence_auto_stop_timeout_update_is_core_owned() {
+        let mut model = CoreModel::default();
+        assert_eq!(model.ui_prefs.silence_auto_stop_seconds, 10);
+
+        let commands = model.reduce(AppEvent::SilenceAutoStopSecondsChanged(7));
+        assert!(commands.is_empty());
+        assert_eq!(model.ui_prefs.silence_auto_stop_seconds, 7);
+
+        let commands = model.reduce(AppEvent::SilenceAutoStopSecondsChanged(0));
+        assert!(commands.is_empty());
+        assert_eq!(model.ui_prefs.silence_auto_stop_seconds, 0);
     }
 
     #[test]

@@ -9,6 +9,8 @@ pub enum AppEvent {
     LogMessage(String),
     LiveText(String),
     CommitRequested,
+    SettingsToggled,
+    SilenceAutoStopSecondsChanged(u64),
     VisibilityToggled,
     ShowRequested,
     HideRequested,

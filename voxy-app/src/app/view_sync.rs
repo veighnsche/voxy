@@ -33,6 +33,8 @@ pub fn build_view_model(model: &CoreModel) -> ViewModel {
     ViewModel {
         text: model.buffer.full_text(),
         mic_on,
+        settings_open: model.ui_prefs.settings_open,
+        silence_timeout_seconds: model.ui_prefs.silence_auto_stop_seconds,
         state_badge_text: state_text,
         log_text: model.log_line.clone(),
         error_message,

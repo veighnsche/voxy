@@ -1,8 +1,10 @@
 use std::{
     cell::{Cell, RefCell},
+    env,
     rc::Rc,
+    sync::OnceLock,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gtk4::{prelude::*, Application};
@@ -15,7 +17,7 @@ use crate::{
         behavior::{
             drag, resize, surface::layer_shell::LayerShellBackend, visibility::close_request,
         },
-        lifecycle, view_sync,
+        lifecycle, settings_store, view_sync,
     },
     diagnostics, tray,
     ui::{self, Widgets},
@@ -24,6 +26,10 @@ use crate::{
 
 const RUNTIME_ERROR_CLEAR_DELAY: Duration = Duration::from_secs(2);
 const INPUT_LEVEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const MAX_RECORDING_SECONDS_ENV: &str = "VOXY_MAX_RECORDING_SECONDS";
+const DEFAULT_MAX_RECORDING_SECONDS: u64 = 30 * 60;
+const SILENCE_AUTO_STOP_SECONDS_ENV: &str = "VOXY_SILENCE_AUTO_STOP_SECONDS";
+const DEFAULT_SILENCE_AUTO_STOP_SECONDS: u64 = 10;
 const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
 
 pub fn run() {
@@ -47,6 +53,23 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
     layer_shell_backend.configure_window(&widgets.window);
 
     let model = Rc::new(RefCell::new(CoreModel::default()));
+    let initial_silence_timeout = initial_silence_auto_stop_seconds();
+    let persisted_silence_timeout = settings_store::load_silence_auto_stop_seconds();
+    let silence_timeout = match persisted_silence_timeout {
+        Ok(Some(seconds)) => {
+            diagnostics::pipeline_trace::log(
+                "settings",
+                format!("loaded silence_timeout_seconds={seconds} from persisted settings"),
+            );
+            seconds
+        }
+        Ok(None) => initial_silence_timeout,
+        Err(error) => {
+            diagnostics::pipeline_trace::log("settings", format!("load settings failed: {error}"));
+            initial_silence_timeout
+        }
+    };
+    model.borrow_mut().ui_prefs.silence_auto_stop_seconds = silence_timeout;
     let applying_text_update = Rc::new(Cell::new(false));
 
     let wiring::channels::AppChannels { event_tx, event_rx } =
@@ -142,7 +165,12 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         command_bus,
     );
 
-    start_input_level_meter_loop(widgets.clone(), Rc::clone(&model), Arc::clone(&audio_input));
+    start_input_level_meter_loop(
+        widgets.clone(),
+        Rc::clone(&model),
+        Arc::clone(&audio_input),
+        event_tx.clone(),
+    );
 
     if let Err(message) = tray::start(event_tx.clone()) {
         let _ = event_tx.try_send(AppEvent::RuntimeError(message));
@@ -219,6 +247,34 @@ fn wire_ui_signals(
 
     {
         let event_tx = event_tx.clone();
+        widgets.settings_button.connect_clicked(move |_| {
+            diagnostics::pipeline_trace::log(
+                "ui",
+                "settings_button.clicked -> AppEvent::SettingsToggled",
+            );
+            let _ = event_tx.try_send(AppEvent::SettingsToggled);
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        widgets
+            .settings_pane
+            .silence_timeout_seconds
+            .connect_value_changed(move |spin| {
+                let seconds = spin.value().round().clamp(0.0, 600.0) as u64;
+                diagnostics::pipeline_trace::log(
+                    "ui",
+                    format!(
+                        "settings.timeout.changed -> AppEvent::SilenceAutoStopSecondsChanged({seconds})"
+                    ),
+                );
+                let _ = event_tx.try_send(AppEvent::SilenceAutoStopSecondsChanged(seconds));
+            });
+    }
+
+    {
+        let event_tx = event_tx.clone();
         widgets.close_button.connect_clicked(move |_| {
             diagnostics::pipeline_trace::log(
                 "ui",
@@ -276,9 +332,28 @@ fn start_event_loop(
             let should_clear_runtime_error = matches!(&event, AppEvent::RuntimeError(_));
             diagnostics::pipeline_trace::log("event", format!("received={event:?}"));
 
+            let before_silence_timeout =
+                model_for_events.borrow().ui_prefs.silence_auto_stop_seconds;
             let commands = model_for_events.borrow_mut().reduce(event);
             diagnostics::pipeline_trace::log("event", format!("commands={commands:?}"));
             command_bus_for_events.execute(commands);
+
+            let after_silence_timeout =
+                model_for_events.borrow().ui_prefs.silence_auto_stop_seconds;
+            if after_silence_timeout != before_silence_timeout {
+                match settings_store::save_silence_auto_stop_seconds(after_silence_timeout) {
+                    Ok(()) => diagnostics::pipeline_trace::log(
+                        "settings",
+                        format!("saved silence_timeout_seconds={after_silence_timeout}"),
+                    ),
+                    Err(error) => diagnostics::pipeline_trace::log(
+                        "settings",
+                        format!(
+                            "failed to save silence_timeout_seconds={after_silence_timeout}: {error}"
+                        ),
+                    ),
+                }
+            }
 
             {
                 let snapshot = model_for_events.borrow();
@@ -321,13 +396,144 @@ fn start_input_level_meter_loop(
     widgets: Widgets,
     model: Rc<RefCell<CoreModel>>,
     audio_input: Arc<voxy_audio::InputEngine>,
+    event_tx: mpsc::Sender<AppEvent>,
 ) {
+    let max_recording_duration = max_recording_duration();
+    if let Some(duration) = max_recording_duration {
+        diagnostics::pipeline_trace::log(
+            "guard",
+            format!("max_recording_seconds={}", duration.as_secs()),
+        );
+    } else {
+        diagnostics::pipeline_trace::log("guard", "max_recording_seconds=disabled");
+    }
+    let initial_silence_seconds = model.borrow().ui_prefs.silence_auto_stop_seconds;
+    diagnostics::pipeline_trace::log(
+        "guard",
+        format!("silence_auto_stop_seconds={initial_silence_seconds}"),
+    );
+
+    let mut recording_started_at: Option<Instant> = None;
+    let mut max_duration_triggered = false;
+    let mut below_gate_started_at: Option<Instant> = None;
+    let mut silence_duration_triggered = false;
+
     gtk4::glib::timeout_add_local(INPUT_LEVEL_POLL_INTERVAL, move || {
-        let active = matches!(model.borrow().app_state, AppState::Recording);
+        let (active, silence_timeout_seconds) = {
+            let snapshot = model.borrow();
+            (
+                matches!(snapshot.app_state, AppState::Recording),
+                snapshot.ui_prefs.silence_auto_stop_seconds,
+            )
+        };
         let level = audio_input.latest_input_level();
-        crate::ui::atoms::input_level_meter::render(&widgets.input_level_meter, level, active);
+        let mut silence_seconds_remaining: Option<u64> = None;
+
+        if active {
+            if silence_timeout_seconds > 0 {
+                let duration = Duration::from_secs(silence_timeout_seconds);
+                let visual_level = crate::ui::atoms::input_level_meter::visual_level(level);
+                let gate_threshold =
+                    crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
+                let under_gate = visual_level < gate_threshold;
+
+                if under_gate {
+                    if below_gate_started_at.is_none() {
+                        below_gate_started_at = Some(Instant::now());
+                        silence_duration_triggered = false;
+                    }
+
+                    if let Some(started_at) = below_gate_started_at {
+                        let elapsed = started_at.elapsed();
+                        if !silence_duration_triggered && elapsed >= duration {
+                            silence_duration_triggered = true;
+                            diagnostics::pipeline_trace::log(
+                                "guard",
+                                format!(
+                                    "silence_auto_stop_reached={}s -> AppEvent::MicToggled",
+                                    duration.as_secs()
+                                ),
+                            );
+                            let _ = event_tx.try_send(AppEvent::MicToggled);
+                        } else if !silence_duration_triggered {
+                            let remaining = duration.saturating_sub(elapsed);
+                            silence_seconds_remaining = Some(remaining.as_secs().max(1));
+                        }
+                    }
+                } else {
+                    below_gate_started_at = None;
+                    silence_duration_triggered = false;
+                }
+            } else {
+                below_gate_started_at = None;
+                silence_duration_triggered = false;
+            }
+        } else {
+            below_gate_started_at = None;
+            silence_duration_triggered = false;
+        }
+
+        crate::ui::atoms::input_level_meter::render(
+            &widgets.input_level_meter,
+            level,
+            active,
+            silence_seconds_remaining,
+        );
+
+        if active {
+            if recording_started_at.is_none() {
+                recording_started_at = Some(Instant::now());
+                max_duration_triggered = false;
+            }
+
+            if let (Some(duration), Some(started_at)) =
+                (max_recording_duration, recording_started_at)
+            {
+                if !max_duration_triggered && started_at.elapsed() >= duration {
+                    max_duration_triggered = true;
+                    diagnostics::pipeline_trace::log(
+                        "guard",
+                        format!(
+                            "max_recording_duration_reached={}s -> AppEvent::MicToggled",
+                            duration.as_secs()
+                        ),
+                    );
+                    let _ = event_tx.try_send(AppEvent::MicToggled);
+                }
+            }
+        } else {
+            recording_started_at = None;
+            max_duration_triggered = false;
+        }
+
         gtk4::glib::ControlFlow::Continue
     });
+}
+
+fn max_recording_duration() -> Option<Duration> {
+    static MAX_RECORDING_SECONDS: OnceLock<u64> = OnceLock::new();
+    let seconds = *MAX_RECORDING_SECONDS.get_or_init(|| {
+        env::var(MAX_RECORDING_SECONDS_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_MAX_RECORDING_SECONDS)
+    });
+
+    if seconds == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(seconds))
+    }
+}
+
+fn initial_silence_auto_stop_seconds() -> u64 {
+    static SILENCE_AUTO_STOP_SECONDS: OnceLock<u64> = OnceLock::new();
+    *SILENCE_AUTO_STOP_SECONDS.get_or_init(|| {
+        env::var(SILENCE_AUTO_STOP_SECONDS_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_SILENCE_AUTO_STOP_SECONDS)
+    })
 }
 
 fn render_ui(

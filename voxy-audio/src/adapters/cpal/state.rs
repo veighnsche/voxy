@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use crate::{
-    adapters::cpal::config::{frame_samples, DEFAULT_FRAME_MS, DEFAULT_MAX_BUFFER_FRAMES},
+    adapters::cpal::config::{frame_ms, frame_samples, DEFAULT_MAX_BUFFER_FRAMES},
     AudioError, PcmFrame,
 };
 
@@ -17,7 +17,7 @@ pub struct CaptureBuffer {
 
 impl CaptureBuffer {
     pub fn new(sample_rate_hz: u32, channels: u16) -> Self {
-        let frame_samples = frame_samples(sample_rate_hz, channels, DEFAULT_FRAME_MS);
+        let frame_samples = frame_samples(sample_rate_hz, channels, frame_ms());
         let max_samples = frame_samples * DEFAULT_MAX_BUFFER_FRAMES;
         Self {
             sample_rate_hz,

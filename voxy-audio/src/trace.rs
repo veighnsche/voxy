@@ -1,4 +1,8 @@
-use std::{env, sync::OnceLock};
+use std::{
+    env,
+    sync::OnceLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const TRACE_ENV: &str = "VOXY_TRACE_PIPELINE";
 const TRACE_NOISY_EVERY_ENV: &str = "VOXY_TRACE_PIPELINE_NOISY_EVERY";
@@ -48,7 +52,11 @@ pub fn log(stage: &str, message: impl AsRef<str>) {
         return;
     }
 
-    eprintln!("[voxy:pipe][audio][{stage}] {}", compact(message.as_ref()));
+    eprintln!(
+        "[voxy:pipe][audio][{stage}][t_ms={}] {}",
+        unix_time_ms(),
+        compact(message.as_ref())
+    );
 }
 
 fn compact(message: &str) -> String {
@@ -59,4 +67,11 @@ fn compact(message: &str) -> String {
 
     let head: String = message.chars().take(MAX_TRACE_CHARS).collect();
     format!("{head}... [truncated {} chars]", total - MAX_TRACE_CHARS)
+}
+
+fn unix_time_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
 }

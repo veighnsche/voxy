@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use gtk4::{
     prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, ComboBoxText, Label,
-    Revealer, TextBuffer,
+    Revealer, Stack, TextBuffer,
 };
 
 use crate::ui::{molecules, organisms, templates, ViewModel};
@@ -15,10 +15,14 @@ pub struct Widgets {
     pub reset_button: Button,
     pub copy_button: Button,
     pub model_dropdown: ComboBoxText,
+    pub settings_button: Button,
     pub close_button: Button,
+    pub content_stack: Stack,
+    pub settings_pane: organisms::settings_pane::SettingsPane,
     pub text_buffer: TextBuffer,
     pub state_badge: Label,
     pub recording_indicator: molecules::recording_indicator::RecordingIndicator,
+    pub recording_frame: crate::ui::atoms::recording_frame::RecordingFrame,
     pub input_level_meter: crate::ui::atoms::input_level_meter::InputLevelMeter,
     pub log_display: Label,
     pub error_revealer: Revealer,
@@ -35,10 +39,14 @@ pub fn build(app: &Application) -> Widgets {
         reset_button: template.control_bar.actions.reset_button,
         copy_button: template.control_bar.actions.copy_button,
         model_dropdown: template.control_bar.actions.model_dropdown,
+        settings_button: template.control_bar.actions.settings_button,
         close_button: template.control_bar.actions.close_button,
+        content_stack: template.content_stack,
+        settings_pane: template.settings_pane,
         text_buffer: template.transcript_pane.text_buffer,
         state_badge: template.footer_status.state_badge,
         recording_indicator: template.footer_status.recording_indicator,
+        recording_frame: template.recording_frame,
         input_level_meter: template.footer_status.input_level_meter,
         log_display: template.footer_status.log_display,
         error_revealer: template.error_banner.revealer,
@@ -67,9 +75,19 @@ pub fn render(widgets: &Widgets, view_model: &ViewModel, applying_text_update: &
     }
 
     crate::ui::atoms::mic_button::render(&widgets.mic_button, view_model.mic_on);
+    crate::ui::atoms::settings_button::render(&widgets.settings_button, view_model.settings_open);
     crate::ui::atoms::state_badge::render(&widgets.state_badge, &view_model.state_badge_text);
     crate::ui::atoms::log_display::render(&widgets.log_display, &view_model.log_text);
+    crate::ui::atoms::recording_frame::render(&widgets.recording_frame, view_model.mic_on);
     molecules::recording_indicator::render(&widgets.recording_indicator, view_model.mic_on);
+
+    if view_model.settings_open {
+        widgets.content_stack.set_visible_child_name("settings");
+    } else {
+        widgets.content_stack.set_visible_child_name("transcript");
+    }
+
+    organisms::settings_pane::render(&widgets.settings_pane, view_model.silence_timeout_seconds);
 
     let error_banner = organisms::error_banner::ErrorBanner {
         revealer: widgets.error_revealer.clone(),

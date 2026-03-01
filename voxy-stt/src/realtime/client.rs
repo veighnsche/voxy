@@ -41,6 +41,7 @@ use crate::{
 
 const DEFAULT_REALTIME_URL: &str = "wss://api.openai.com/v1/realtime?intent=transcription";
 const REALTIME_URL_ENV: &str = "VOXY_OPENAI_REALTIME_URL";
+const SOURCE_POLL_MS_ENV: &str = "VOXY_STT_SOURCE_POLL_MS";
 const DEFAULT_SOURCE_POLL_MS: u64 = 20;
 static SOURCE_FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
 static UPLINK_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -74,7 +75,7 @@ impl OpenAiRealtimeTranscriber {
             tx,
             audio_source,
             downlink_tx,
-            source_poll_interval: Duration::from_millis(DEFAULT_SOURCE_POLL_MS),
+            source_poll_interval: source_poll_interval_from_env(),
             worker: Mutex::new(WorkerState::default()),
         }
     }
@@ -232,6 +233,13 @@ async fn run_session(
     config: TranscriberSessionConfig,
     source_poll_interval: Duration,
 ) {
+    trace::log(
+        "session",
+        format!(
+            "source_poll_interval_ms={}",
+            source_poll_interval.as_millis()
+        ),
+    );
     let request = match build_request(&ws_url, &api_key) {
         Ok(request) => request,
         Err(error) => {
@@ -529,6 +537,19 @@ fn summarize_client_event(event: &ClientEvent) -> String {
         ClientEvent::InputAudioBufferCommit => "event=input_audio_buffer.commit".to_owned(),
         ClientEvent::InputAudioBufferClear => "event=input_audio_buffer.clear".to_owned(),
     }
+}
+
+fn source_poll_interval_from_env() -> Duration {
+    static SOURCE_POLL_MS: OnceLock<u64> = OnceLock::new();
+    let poll_ms = *SOURCE_POLL_MS.get_or_init(|| {
+        env::var(SOURCE_POLL_MS_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_SOURCE_POLL_MS)
+    });
+
+    Duration::from_millis(poll_ms)
 }
 
 fn ensure_rustls_provider() -> Result<(), &'static str> {

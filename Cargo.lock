@@ -2028,6 +2028,8 @@ dependencies = [
  "gtk4-layer-shell",
  "ksni",
  "libc",
+ "serde",
+ "serde_json",
  "tokio",
  "voxy-audio",
  "voxy-core",

@@ -8,6 +8,7 @@ pub struct ControlActions {
     pub reset_button: Button,
     pub copy_button: Button,
     pub model_dropdown: ComboBoxText,
+    pub settings_button: Button,
     pub close_button: Button,
 }
 
@@ -19,6 +20,7 @@ pub fn build() -> (GtkBox, ControlActions) {
     let reset_button = atoms::reset_button::build();
     let copy_button = atoms::copy_button::build();
     let model_dropdown = atoms::model_dropdown::build();
+    let settings_button = atoms::settings_button::build();
     let close_button = atoms::close_button::build();
     let logo = atoms::voxy_logo::build();
     logo.set_halign(Align::Center);
@@ -38,6 +40,7 @@ pub fn build() -> (GtkBox, ControlActions) {
     let right_slot = GtkBox::new(Orientation::Horizontal, 8);
     right_slot.set_halign(Align::End);
     right_slot.append(&copy_reset_group);
+    right_slot.append(&settings_button);
     right_slot.append(&close_button);
 
     let spacer = GtkBox::new(Orientation::Horizontal, 0);
@@ -63,6 +66,7 @@ pub fn build() -> (GtkBox, ControlActions) {
             reset_button,
             copy_button,
             model_dropdown,
+            settings_button,
             close_button,
         },
     )

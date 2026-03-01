@@ -1,5 +1,19 @@
+use std::{env, sync::OnceLock};
+
 pub const DEFAULT_FRAME_MS: usize = 20;
 pub const DEFAULT_MAX_BUFFER_FRAMES: usize = 200;
+const FRAME_MS_ENV: &str = "VOXY_AUDIO_FRAME_MS";
+
+pub fn frame_ms() -> usize {
+    static FRAME_MS: OnceLock<usize> = OnceLock::new();
+    *FRAME_MS.get_or_init(|| {
+        env::var(FRAME_MS_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_FRAME_MS)
+    })
+}
 
 pub fn frame_samples(sample_rate_hz: u32, channels: u16, frame_ms: usize) -> usize {
     let per_channel = ((sample_rate_hz as usize * frame_ms) / 1000).max(1);

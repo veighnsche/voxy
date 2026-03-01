@@ -43,6 +43,26 @@ just dev
 - with `watchexec` or `cargo-watch`, it auto-restarts on file changes
 - without a watcher, it falls back to a normal single-session GUI run
 
+## Latency Tuning Knobs
+
+You can tune live-text responsiveness with environment variables:
+
+- `VOXY_UI_EVENT_POLL_MS` (default `16`): GTK event-loop drain cadence.
+- `VOXY_STT_SOURCE_POLL_MS` (default `20`): realtime uplink source polling cadence.
+- `VOXY_AUDIO_FRAME_MS` (default `20`): CPAL frame duration per audio chunk.
+- `VOXY_MAX_RECORDING_SECONDS` (default `1800`): hard stop to prevent runaway recording sessions (`0` disables).
+- `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence auto-stop timeout shown in settings (`0` disables).
+
+Settings persistence:
+- Silence timeout is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
+- If `XDG_CONFIG_HOME` is unset, fallback path is `~/.config/voxy/settings.json`.
+
+Example:
+
+```bash
+VOXY_UI_EVENT_POLL_MS=16 VOXY_STT_SOURCE_POLL_MS=15 VOXY_AUDIO_FRAME_MS=15 just gui-trace
+```
+
 ## One-Shot GUI Run
 
 ```bash
