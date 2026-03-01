@@ -1,4 +1,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptionAdapter {
+    OpenAiApi,
+}
+
+impl TranscriptionAdapter {
+    pub fn as_id(self) -> &'static str {
+        match self {
+            Self::OpenAiApi => "openai_api",
+        }
+    }
+
+    pub fn as_label(self) -> &'static str {
+        match self {
+            Self::OpenAiApi => "OpenAI API",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TranscriptionModel {
     Gpt4oMiniTranscribe,
     Gpt4oTranscribe,
@@ -18,6 +37,12 @@ impl TranscriptionModel {
         match self {
             Self::Gpt4oMiniTranscribe => "4o Mini Transcribe",
             Self::Gpt4oTranscribe => "4o Transcribe",
+        }
+    }
+
+    pub fn adapter(self) -> TranscriptionAdapter {
+        match self {
+            Self::Gpt4oMiniTranscribe | Self::Gpt4oTranscribe => TranscriptionAdapter::OpenAiApi,
         }
     }
 

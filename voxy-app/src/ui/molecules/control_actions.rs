@@ -1,4 +1,4 @@
-use gtk4::{prelude::*, Align, Box as GtkBox, Button, ComboBoxText, Orientation, Overlay};
+use gtk4::{prelude::*, Align, Box as GtkBox, Button, ComboBox, Orientation, Overlay};
 
 use crate::ui::atoms;
 
@@ -7,7 +7,7 @@ pub struct ControlActions {
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
-    pub model_dropdown: ComboBoxText,
+    pub model_dropdown: ComboBox,
     pub settings_button: Button,
     pub close_button: Button,
 }

@@ -258,13 +258,25 @@ fn wire_ui_signals(
 
     {
         let command_bus = command_bus.clone();
+        let last_valid_model_id = Rc::new(RefCell::new(
+            TranscriptionModel::default().as_api_id().to_owned(),
+        ));
+        let last_valid_model_id_for_handler = Rc::clone(&last_valid_model_id);
         widgets.model_dropdown.connect_changed(move |dropdown| {
             let Some(model_id) = dropdown.active_id() else {
                 return;
             };
+            if crate::ui::atoms::model_dropdown::is_group_row_id(model_id.as_str()) {
+                let fallback_id = last_valid_model_id_for_handler.borrow().clone();
+                if model_id.as_str() != fallback_id {
+                    dropdown.set_active_id(Some(&fallback_id));
+                }
+                return;
+            }
             let Some(model) = TranscriptionModel::from_api_id(model_id.as_str()) else {
                 return;
             };
+            *last_valid_model_id_for_handler.borrow_mut() = model.as_api_id().to_owned();
             diagnostics::pipeline_trace::log(
                 "ui",
                 format!("model_dropdown.changed -> {}", model.as_api_id()),

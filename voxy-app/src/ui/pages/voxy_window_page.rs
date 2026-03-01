@@ -1,8 +1,8 @@
 use std::cell::Cell;
 
 use gtk4::{
-    prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, ComboBoxText, Label,
-    Revealer, Stack, TextBuffer,
+    prelude::*, Application, ApplicationWindow, Box as GtkBox, Button, ComboBox, Label, Revealer,
+    Stack, TextBuffer,
 };
 
 use crate::ui::{molecules, organisms, templates, ViewModel};
@@ -14,7 +14,7 @@ pub struct Widgets {
     pub mic_button: Button,
     pub reset_button: Button,
     pub copy_button: Button,
-    pub model_dropdown: ComboBoxText,
+    pub model_dropdown: ComboBox,
     pub settings_button: Button,
     pub close_button: Button,
     pub content_stack: Stack,

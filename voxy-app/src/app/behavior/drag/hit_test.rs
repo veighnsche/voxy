@@ -1,6 +1,6 @@
 use gtk4::{
-    prelude::*, ApplicationWindow, Button, CheckButton, ComboBoxText, DropDown, Entry, PickFlags,
-    Scale, ScrolledWindow, SpinButton, Switch, TextView, ToggleButton, Widget,
+    prelude::*, ApplicationWindow, Button, CheckButton, ComboBox, ComboBoxText, DropDown, Entry,
+    PickFlags, Scale, ScrolledWindow, SpinButton, Switch, TextView, ToggleButton, Widget,
 };
 
 pub fn should_start_drag(window: &ApplicationWindow, x: f64, y: f64) -> bool {
@@ -19,6 +19,7 @@ fn is_interactive_target(mut widget: Widget) -> bool {
             || widget.is::<CheckButton>()
             || widget.is::<Switch>()
             || widget.is::<DropDown>()
+            || widget.is::<ComboBox>()
             || widget.is::<ComboBoxText>()
             || widget.is::<Entry>()
             || widget.is::<TextView>()
