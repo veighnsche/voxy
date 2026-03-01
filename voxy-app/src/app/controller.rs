@@ -3,13 +3,14 @@ use std::{
     env,
     rc::Rc,
     sync::OnceLock,
-    sync::{Arc, Mutex},
+    sync::{mpsc as std_mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use gtk4::{gdk, prelude::*, Application, EventControllerKey, PropagationPhase};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_core::{AppEvent, AppState, CoreModel};
+use voxy_models::ModelLifecycle;
 use voxy_stt::TranscriptionModel;
 
 use crate::{
@@ -98,6 +99,7 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         gate_threshold,
     );
     let applying_text_update = Rc::new(Cell::new(false));
+    let model_lifecycle = Arc::new(ModelLifecycle::from_env());
 
     let wiring::channels::AppChannels { event_tx, event_rx } =
         wiring::channels::build_event_channels();
@@ -175,10 +177,14 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         Arc::clone(&selected_model),
     );
 
+    sync_model_lifecycle_items(&widgets, Arc::clone(&model_lifecycle), event_tx.clone());
+
     wire_ui_signals(
         widgets.clone(),
         Rc::clone(&model),
         Rc::clone(&applying_text_update),
+        Arc::clone(&runtime),
+        Arc::clone(&model_lifecycle),
         event_tx.clone(),
         command_bus.clone(),
     );
@@ -223,9 +229,16 @@ fn wire_ui_signals(
     widgets: Widgets,
     model: Rc<RefCell<CoreModel>>,
     applying_text_update: Rc<Cell<bool>>,
+    runtime: Arc<Runtime>,
+    model_lifecycle: Arc<ModelLifecycle>,
     event_tx: mpsc::Sender<AppEvent>,
     command_bus: CommandBus,
 ) {
+    enum ModelActionUpdate {
+        Progress(f32),
+        Done(Result<voxy_models::InstallState, String>),
+    }
+
     {
         let event_tx = event_tx.clone();
         widgets.mic_button.connect_clicked(move |_| {
@@ -313,6 +326,127 @@ fn wire_ui_signals(
             });
     }
 
+    for control in widgets.settings_pane.model_lifecycle_controls.clone() {
+        let event_tx = event_tx.clone();
+        let runtime = Arc::clone(&runtime);
+        let model_lifecycle = Arc::clone(&model_lifecycle);
+        let managed_model = control.model;
+        let item = control.item.clone();
+        let action_button = item.action_button.clone();
+        action_button.connect_clicked(move |_| {
+            if item.is_busy() {
+                return;
+            }
+            item.popdown();
+            item.set_busy(true);
+            diagnostics::pipeline_trace::log(
+                "ui",
+                format!("settings.models.action.start -> {}", managed_model.id()),
+            );
+
+            let (update_tx, update_rx) = std_mpsc::channel::<ModelActionUpdate>();
+            let model_lifecycle_for_worker = Arc::clone(&model_lifecycle);
+            runtime.spawn(async move {
+                let update_tx_for_done = update_tx.clone();
+                let result = match tokio::task::spawn_blocking(move || {
+                    let update_tx_for_progress = update_tx.clone();
+                    model_lifecycle_for_worker.perform_primary_action_with_progress(
+                        managed_model,
+                        move |fraction| {
+                            let _ = update_tx_for_progress
+                                .send(ModelActionUpdate::Progress(fraction.clamp(0.0, 1.0)));
+                        },
+                    )
+                })
+                .await
+                {
+                    Ok(inner) => inner.map_err(|error| error.to_string()),
+                    Err(error) => Err(format!("model lifecycle worker failed: {error}")),
+                };
+                let _ = update_tx_for_done.send(ModelActionUpdate::Done(result));
+            });
+
+            let item_for_poll = item.clone();
+            let model_lifecycle_for_poll = Arc::clone(&model_lifecycle);
+            let event_tx_for_poll = event_tx.clone();
+            gtk4::glib::timeout_add_local(Duration::from_millis(60), move || loop {
+                match update_rx.try_recv() {
+                    Ok(ModelActionUpdate::Progress(fraction)) => {
+                        item_for_poll.set_progress(Some(fraction));
+                    }
+                    Ok(ModelActionUpdate::Done(Ok(next_state))) => {
+                        item_for_poll.set_state(next_state);
+                        item_for_poll.set_busy(false);
+                        let storage_hint = model_lifecycle_for_poll
+                            .root_path()
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| "<unavailable>".to_owned());
+                        diagnostics::pipeline_trace::log(
+                            "ui",
+                            format!(
+                                "settings.models.action.done -> {} {:?}",
+                                managed_model.id(),
+                                next_state
+                            ),
+                        );
+                        let message = match next_state {
+                            voxy_models::InstallState::Downloaded => {
+                                format!(
+                                    "Downloaded: {} (saved in {})",
+                                    managed_model.title(),
+                                    storage_hint
+                                )
+                            }
+                            voxy_models::InstallState::NotDownloaded => {
+                                format!(
+                                    "Removed: {} (saved in {})",
+                                    managed_model.title(),
+                                    storage_hint
+                                )
+                            }
+                        };
+                        let _ = event_tx_for_poll.try_send(AppEvent::LogMessage(message));
+                        return gtk4::glib::ControlFlow::Break;
+                    }
+                    Ok(ModelActionUpdate::Done(Err(error))) => {
+                        if let Ok(state) = model_lifecycle_for_poll.install_state(managed_model) {
+                            item_for_poll.set_state(state);
+                        }
+                        item_for_poll.set_busy(false);
+                        diagnostics::pipeline_trace::log(
+                            "ui",
+                            format!(
+                                "settings.models.action.error -> {} {}",
+                                managed_model.id(),
+                                error
+                            ),
+                        );
+                        let _ = event_tx_for_poll.try_send(AppEvent::RuntimeError(format!(
+                            "Model lifecycle failed for {}: {}",
+                            managed_model.id(),
+                            error
+                        )));
+                        return gtk4::glib::ControlFlow::Break;
+                    }
+                    Err(std_mpsc::TryRecvError::Empty) => {
+                        return gtk4::glib::ControlFlow::Continue;
+                    }
+                    Err(std_mpsc::TryRecvError::Disconnected) => {
+                        if let Ok(state) = model_lifecycle_for_poll.install_state(managed_model) {
+                            item_for_poll.set_state(state);
+                        }
+                        item_for_poll.set_busy(false);
+                        let _ = event_tx_for_poll.try_send(AppEvent::RuntimeError(format!(
+                            "Model lifecycle worker disconnected for {}",
+                            managed_model.id()
+                        )));
+                        return gtk4::glib::ControlFlow::Break;
+                    }
+                }
+            });
+        });
+    }
+
     {
         let event_tx = event_tx.clone();
         widgets.close_button.connect_clicked(move |_| {
@@ -365,6 +499,35 @@ fn wire_ui_signals(
 
                 model.borrow_mut().apply_user_edit(text);
             });
+    }
+}
+
+fn sync_model_lifecycle_items(
+    widgets: &Widgets,
+    model_lifecycle: Arc<ModelLifecycle>,
+    event_tx: mpsc::Sender<AppEvent>,
+) {
+    for control in widgets.settings_pane.model_lifecycle_controls.clone() {
+        match model_lifecycle.install_state(control.model) {
+            Ok(state) => {
+                control.item.set_state(state);
+                diagnostics::pipeline_trace::log(
+                    "settings",
+                    format!("model.install_state {} {:?}", control.model.id(), state),
+                );
+            }
+            Err(error) => {
+                diagnostics::pipeline_trace::log(
+                    "settings",
+                    format!("model.install_state.error {} {}", control.model.id(), error),
+                );
+                let _ = event_tx.try_send(AppEvent::RuntimeError(format!(
+                    "Failed to load model state for {}: {}",
+                    control.model.id(),
+                    error
+                )));
+            }
+        }
     }
 }
 

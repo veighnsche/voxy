@@ -1,0 +1,14 @@
+[package]
+name = "voxy-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Local model catalog and lifecycle persistence for Voxy"
+readme = "README.md"
+keywords = ["model", "lifecycle", "transcription", "xdg"]
+
+[dependencies]
+ureq = { version = "2.12.1", default-features = false, features = ["tls", "gzip"] }
