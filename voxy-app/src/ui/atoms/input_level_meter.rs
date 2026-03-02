@@ -1,4 +1,7 @@
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use gtk4::{
     prelude::*, Align, Box as GtkBox, DrawingArea, GestureClick, Label, LevelBar, LevelBarMode,
@@ -7,7 +10,6 @@ use gtk4::{
 
 const MIN_LEVEL: f32 = 0.0;
 const MAX_LEVEL: f32 = 1.0;
-const DEFAULT_GATE_THRESHOLD: f32 = 0.30;
 const GATE_HIGH_OFFSET_DELTA: f32 = 0.15;
 
 #[derive(Clone)]
@@ -17,6 +19,7 @@ pub struct InputLevelMeter {
     threshold_line: DrawingArea,
     gate_threshold: Rc<Cell<f32>>,
     countdown_label: Label,
+    threshold_changed_handlers: Rc<RefCell<Vec<Box<dyn Fn(f32)>>>>,
 }
 
 pub fn build() -> InputLevelMeter {
@@ -28,7 +31,9 @@ pub fn build() -> InputLevelMeter {
     title.set_xalign(0.0);
     title.set_width_chars(2);
 
-    let gate_threshold = Rc::new(Cell::new(DEFAULT_GATE_THRESHOLD));
+    let gate_threshold = Rc::new(Cell::new(voxy_core::DEFAULT_SILENCE_GATE_THRESHOLD));
+    let threshold_changed_handlers: Rc<RefCell<Vec<Box<dyn Fn(f32)>>>> =
+        Rc::new(RefCell::new(Vec::new()));
 
     let bar = LevelBar::new();
     // Keep the meter as a single widget instead of many discrete blocks.
@@ -41,7 +46,7 @@ pub fn build() -> InputLevelMeter {
     bar.set_halign(Align::Start);
     bar.set_sensitive(true);
     bar.set_inverted(false);
-    set_gate_offsets(&bar, DEFAULT_GATE_THRESHOLD);
+    set_gate_offsets(&bar, voxy_core::DEFAULT_SILENCE_GATE_THRESHOLD);
     bar.set_tooltip_text(Some(
         "Input level (green/yellow/red). Click the meter to set gate threshold.",
     ));
@@ -77,12 +82,16 @@ pub fn build() -> InputLevelMeter {
         let gate_threshold = Rc::clone(&gate_threshold);
         let threshold_line = threshold_line.clone();
         let meter_surface = meter_surface.clone();
+        let threshold_changed_handlers = Rc::clone(&threshold_changed_handlers);
         click.connect_pressed(move |_, _, x, _| {
             let width = meter_surface.allocated_width().max(1) as f32;
-            let next_threshold = (x as f32 / width).clamp(MIN_LEVEL, MAX_LEVEL);
+            let next_threshold = voxy_core::clamp_silence_gate_threshold(x as f32 / width);
             gate_threshold.set(next_threshold);
             set_gate_offsets(&bar, next_threshold);
             threshold_line.queue_draw();
+            for handler in threshold_changed_handlers.borrow().iter() {
+                handler(next_threshold);
+            }
         });
     }
     meter_surface.add_controller(click);
@@ -103,6 +112,7 @@ pub fn build() -> InputLevelMeter {
         threshold_line,
         gate_threshold,
         countdown_label,
+        threshold_changed_handlers,
     }
 }
 
@@ -111,7 +121,10 @@ pub fn render(
     normalized_level: f32,
     active: bool,
     silence_seconds_remaining: Option<u64>,
+    gate_threshold: f32,
 ) {
+    set_gate_threshold(meter, gate_threshold);
+
     if !active {
         meter.bar.set_value(0.0);
         meter
@@ -135,27 +148,25 @@ pub fn render(
     }
 }
 
-pub fn gate_threshold(meter: &InputLevelMeter) -> f32 {
-    meter.gate_threshold.get().clamp(MIN_LEVEL, MAX_LEVEL)
-}
-
 pub fn set_gate_threshold(meter: &InputLevelMeter, threshold: f32) {
-    let clamped = threshold.clamp(MIN_LEVEL, MAX_LEVEL);
+    let clamped = voxy_core::clamp_silence_gate_threshold(threshold);
+    if (meter.gate_threshold.get() - clamped).abs() <= f32::EPSILON {
+        return;
+    }
     meter.gate_threshold.set(clamped);
     set_gate_offsets(&meter.bar, clamped);
     meter.threshold_line.queue_draw();
 }
 
-pub fn visual_level(raw_level: f32) -> f32 {
-    let level = raw_level.clamp(MIN_LEVEL, MAX_LEVEL);
-    if level <= 0.000_01 {
-        return 0.0;
-    }
+pub fn connect_gate_threshold_changed(meter: &InputLevelMeter, on_changed: impl Fn(f32) + 'static) {
+    meter
+        .threshold_changed_handlers
+        .borrow_mut()
+        .push(Box::new(on_changed));
+}
 
-    // Map linear PCM peak into a dB range so normal speech isn't stuck on block 1.
-    let db = 20.0 * level.log10();
-    let normalized_db = ((db + 54.0) / 54.0).clamp(0.0, 1.0);
-    normalized_db.powf(0.8)
+fn visual_level(raw_level: f32) -> f32 {
+    voxy_core::visual_input_level(raw_level)
 }
 
 fn set_gate_offsets(bar: &LevelBar, threshold: f32) {

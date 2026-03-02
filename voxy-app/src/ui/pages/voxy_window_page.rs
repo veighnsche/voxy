@@ -84,6 +84,11 @@ pub fn render(widgets: &Widgets, view_model: &ViewModel, applying_text_update: &
     crate::ui::atoms::log_display::render(&widgets.log_display, &view_model.log_text);
     crate::ui::atoms::recording_frame::render(&widgets.recording_frame, view_model.mic_on);
     molecules::recording_indicator::render(&widgets.recording_indicator, view_model.mic_on);
+    if widgets.model_dropdown.active_id().as_deref() != Some(&view_model.selected_model_api_id) {
+        widgets
+            .model_dropdown
+            .set_active_id(Some(&view_model.selected_model_api_id));
+    }
 
     if view_model.settings_open {
         widgets.content_stack.set_visible_child_name("settings");

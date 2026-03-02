@@ -1,13 +1,13 @@
 use gtk4::{
     prelude::*, Adjustment, Align, Box as GtkBox, Label, Orientation, ScrolledWindow, SpinButton,
 };
+use voxy_core::{
+    clamp_silence_auto_stop_seconds, clamp_vad_silence_duration_ms,
+    DEFAULT_SILENCE_AUTO_STOP_SECONDS, DEFAULT_VAD_SILENCE_DURATION_MS,
+    MAX_SILENCE_AUTO_STOP_SECONDS, MAX_VAD_SILENCE_DURATION_MS, MIN_VAD_SILENCE_DURATION_MS,
+};
 
 use crate::ui::atoms::config_item;
-
-const MIN_TIMEOUT_SECONDS: f64 = 0.0;
-const MAX_TIMEOUT_SECONDS: f64 = 600.0;
-const MIN_VAD_SILENCE_MS: f64 = 100.0;
-const MAX_VAD_SILENCE_MS: f64 = 5_000.0;
 
 #[derive(Clone)]
 pub struct SettingsPane {
@@ -53,13 +53,13 @@ pub fn build() -> SettingsPane {
 }
 
 pub fn render(pane: &SettingsPane, silence_timeout_seconds: u64, vad_silence_ms: u32) {
-    let bounded = silence_timeout_seconds.min(MAX_TIMEOUT_SECONDS as u64) as f64;
+    let bounded = clamp_silence_auto_stop_seconds(silence_timeout_seconds) as f64;
     let current = pane.silence_timeout_seconds.value();
     if (current - bounded).abs() > 0.49 {
         pane.silence_timeout_seconds.set_value(bounded);
     }
 
-    let bounded_vad = vad_silence_ms.clamp(100, 5_000) as f64;
+    let bounded_vad = clamp_vad_silence_duration_ms(vad_silence_ms) as f64;
     let current_vad = pane.vad_silence_ms.value();
     if (current_vad - bounded_vad).abs() > 0.49 {
         pane.vad_silence_ms.set_value(bounded_vad);
@@ -78,9 +78,9 @@ fn build_recording_section() -> (GtkBox, SpinButton, SpinButton) {
 
     let timeout_item = {
         let timeout_adjustment = Adjustment::new(
-            10.0,
-            MIN_TIMEOUT_SECONDS,
-            MAX_TIMEOUT_SECONDS,
+            DEFAULT_SILENCE_AUTO_STOP_SECONDS as f64,
+            0.0,
+            MAX_SILENCE_AUTO_STOP_SECONDS as f64,
             1.0,
             5.0,
             0.0,
@@ -95,9 +95,9 @@ fn build_recording_section() -> (GtkBox, SpinButton, SpinButton) {
 
     let vad_item = {
         let vad_adjustment = Adjustment::new(
-            1600.0,
-            MIN_VAD_SILENCE_MS,
-            MAX_VAD_SILENCE_MS,
+            DEFAULT_VAD_SILENCE_DURATION_MS as f64,
+            MIN_VAD_SILENCE_DURATION_MS as f64,
+            MAX_VAD_SILENCE_DURATION_MS as f64,
             50.0,
             250.0,
             0.0,

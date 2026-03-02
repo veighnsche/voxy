@@ -1,14 +1,10 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
+use serde::{Deserialize, Serialize};
+use voxy_core::{
+    clamp_silence_auto_stop_seconds, clamp_silence_gate_threshold, clamp_vad_silence_duration_ms,
 };
 
-use serde::{Deserialize, Serialize};
-
-const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
-const HOME_ENV: &str = "HOME";
-const APP_CONFIG_DIR: &str = "voxy";
-const SETTINGS_FILE_NAME: &str = "settings.json";
+mod file_store;
+mod paths;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct SettingsFile {
@@ -18,112 +14,39 @@ struct SettingsFile {
 }
 
 pub fn load_silence_auto_stop_seconds() -> Result<Option<u64>, String> {
-    Ok(load_settings_file()?.silence_auto_stop_seconds)
+    Ok(file_store::load_settings_file()?
+        .silence_auto_stop_seconds
+        .map(clamp_silence_auto_stop_seconds))
 }
 
 pub fn load_silence_gate_threshold() -> Result<Option<f32>, String> {
-    Ok(load_settings_file()?
+    Ok(file_store::load_settings_file()?
         .silence_gate_threshold
-        .map(|value| value.clamp(0.0, 1.0)))
+        .map(clamp_silence_gate_threshold))
 }
 
 pub fn load_vad_silence_ms() -> Result<Option<u32>, String> {
-    Ok(load_settings_file()?
+    Ok(file_store::load_settings_file()?
         .vad_silence_ms
-        .map(|value| value.clamp(100, 5_000)))
+        .map(clamp_vad_silence_duration_ms))
 }
 
-pub fn save_silence_auto_stop_seconds(seconds: u64) -> Result<(), String> {
-    let mut payload = load_settings_file()?;
-    payload.silence_auto_stop_seconds = Some(seconds);
-    save_settings_file(&payload)
+pub fn save_recording_settings(
+    silence_auto_stop_seconds: u64,
+    silence_gate_threshold: f32,
+    vad_silence_ms: u32,
+) -> Result<(), String> {
+    let mut payload = file_store::load_settings_file()?;
+    payload.silence_auto_stop_seconds =
+        Some(clamp_silence_auto_stop_seconds(silence_auto_stop_seconds));
+    payload.silence_gate_threshold = Some(clamp_silence_gate_threshold(silence_gate_threshold));
+    payload.vad_silence_ms = Some(clamp_vad_silence_duration_ms(vad_silence_ms));
+    file_store::save_settings_file(&payload)
 }
 
-pub fn save_silence_gate_threshold(threshold: f32) -> Result<(), String> {
-    let mut payload = load_settings_file()?;
-    payload.silence_gate_threshold = Some(threshold.clamp(0.0, 1.0));
-    save_settings_file(&payload)
-}
-
-pub fn save_vad_silence_ms(vad_silence_ms: u32) -> Result<(), String> {
-    let mut payload = load_settings_file()?;
-    payload.vad_silence_ms = Some(vad_silence_ms.clamp(100, 5_000));
-    save_settings_file(&payload)
-}
-
-pub fn settings_file_path() -> Option<PathBuf> {
-    xdg_config_home().map(|dir| dir.join(APP_CONFIG_DIR).join(SETTINGS_FILE_NAME))
-}
-
-fn xdg_config_home() -> Option<PathBuf> {
-    if let Some(dir) = non_empty_env(XDG_CONFIG_HOME_ENV) {
-        return Some(PathBuf::from(dir));
-    }
-
-    non_empty_env(HOME_ENV).map(|home| PathBuf::from(home).join(".config"))
-}
-
-fn non_empty_env(key: &str) -> Option<String> {
-    env::var(key)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .and_then(|value| if value.is_empty() { None } else { Some(value) })
-}
-
-fn ensure_parent_dir(path: &Path) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("invalid settings path '{}'", path.display()))?;
-
-    fs::create_dir_all(parent).map_err(|error| {
-        format!(
-            "failed to create settings directory '{}': {error}",
-            parent.display()
-        )
-    })
-}
-
-fn load_settings_file() -> Result<SettingsFile, String> {
-    let Some(path) = settings_file_path() else {
-        return Ok(SettingsFile::default());
-    };
-
-    if !path.exists() {
-        return Ok(SettingsFile::default());
-    }
-
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read settings file '{}': {error}", path.display()))?;
-    let parsed: SettingsFile = serde_json::from_str(&raw).map_err(|error| {
-        format!(
-            "failed to parse settings file '{}': {error}",
-            path.display()
-        )
-    })?;
-
-    Ok(parsed)
-}
-
-fn save_settings_file(payload: &SettingsFile) -> Result<(), String> {
-    let Some(path) = settings_file_path() else {
-        return Err("no config directory available (missing XDG_CONFIG_HOME and HOME)".to_owned());
-    };
-
-    ensure_parent_dir(&path)?;
-
-    let json = serde_json::to_string_pretty(payload).map_err(|error| {
-        format!(
-            "failed to serialize settings file payload '{}': {error}",
-            path.display()
-        )
-    })?;
-
-    fs::write(&path, format!("{json}\n")).map_err(|error| {
-        format!(
-            "failed to write settings file '{}': {error}",
-            path.display()
-        )
-    })
+#[cfg(test)]
+pub fn settings_file_path() -> Option<std::path::PathBuf> {
+    paths::settings_file_path()
 }
 
 #[cfg(test)]
@@ -135,10 +58,10 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use super::paths::{HOME_ENV, XDG_CONFIG_HOME_ENV};
     use super::{
         load_silence_auto_stop_seconds, load_silence_gate_threshold, load_vad_silence_ms,
-        save_silence_auto_stop_seconds, save_silence_gate_threshold, save_vad_silence_ms,
-        settings_file_path, HOME_ENV, XDG_CONFIG_HOME_ENV,
+        save_recording_settings, settings_file_path,
     };
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -197,9 +120,7 @@ mod tests {
         let _xdg_guard = EnvVarGuard::set(XDG_CONFIG_HOME_ENV, dir.to_string_lossy().as_ref());
         let _home_guard = EnvVarGuard::unset(HOME_ENV);
 
-        save_silence_auto_stop_seconds(37).expect("silence timeout should save");
-        save_silence_gate_threshold(0.42).expect("gate threshold should save");
-        save_vad_silence_ms(1650).expect("vad silence should save");
+        save_recording_settings(37, 0.42, 1650).expect("recording settings should save");
 
         assert_eq!(
             load_silence_auto_stop_seconds().expect("silence timeout should load"),
@@ -216,6 +137,33 @@ mod tests {
 
         let expected_path = dir.join("voxy").join("settings.json");
         assert_eq!(settings_file_path(), Some(expected_path));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_recording_settings_updates_all_fields_in_one_write_path() {
+        let _env_lock = ENV_LOCK.lock().expect("env mutex should not be poisoned");
+        let dir = test_dir("save-recording-settings");
+        fs::create_dir_all(&dir).expect("test directory should be created");
+
+        let _xdg_guard = EnvVarGuard::set(XDG_CONFIG_HOME_ENV, dir.to_string_lossy().as_ref());
+        let _home_guard = EnvVarGuard::unset(HOME_ENV);
+
+        save_recording_settings(25, 0.55, 1500).expect("recording settings should save");
+
+        assert_eq!(
+            load_silence_auto_stop_seconds().expect("silence timeout should load"),
+            Some(25)
+        );
+        assert_eq!(
+            load_silence_gate_threshold().expect("gate threshold should load"),
+            Some(0.55)
+        );
+        assert_eq!(
+            load_vad_silence_ms().expect("vad silence should load"),
+            Some(1500)
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

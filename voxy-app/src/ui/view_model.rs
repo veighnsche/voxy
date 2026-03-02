@@ -5,6 +5,7 @@ pub struct ViewModel {
     pub settings_open: bool,
     pub silence_timeout_seconds: u64,
     pub vad_silence_ms: u32,
+    pub selected_model_api_id: String,
     pub state_badge_text: String,
     pub log_text: String,
     pub error_message: Option<String>,
