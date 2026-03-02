@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+use crate::TranscriptionModelId;
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
     MicToggled,
     ResetRequested,
@@ -12,8 +14,10 @@ pub enum AppEvent {
     CommitRequested,
     RecordingStartRejected,
     SettingsToggled,
+    TranscriptionModelChanged(TranscriptionModelId),
     SilenceAutoStopSecondsChanged(u64),
     VadSilenceDurationMsChanged(u32),
+    SilenceGateThresholdChanged(f32),
     VisibilityToggled,
     ShowRequested,
     HideRequested,

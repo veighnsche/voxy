@@ -1,38 +1,48 @@
-use crate::{transition, AppEvent, AppState, BufferState, UiPrefs};
+use std::time::{Duration, Instant};
 
-const WINDOW_RESIZE_STEP: i32 = 40;
-const WINDOW_MIN_WIDTH: i32 = 280;
-const WINDOW_MIN_HEIGHT: i32 = 320;
-const WINDOW_MAX_WIDTH: i32 = 960;
-const WINDOW_MAX_HEIGHT: i32 = 1280;
-const VAD_SILENCE_DURATION_MS_MIN: u32 = 100;
-const VAD_SILENCE_DURATION_MS_MAX: u32 = 5_000;
+use crate::{
+    recording_stop::RecordingStopPolicyState, AppEvent, AppState, BufferState,
+    RecordingStopDecision, TranscriptionModelId, UiPrefs,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+mod clipboard;
+mod error;
+mod recording;
+mod settings;
+mod window;
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum CoreCommand {
     StartAudioInput,
     StopAudioInput,
     RouteMicrophoneAudio,
-    StartTranscriber,
+    StartTranscriber {
+        model: TranscriptionModelId,
+        vad_silence_duration_ms: u32,
+    },
     StopTranscriber,
     StopTranscriberThenEmit(AppEvent),
     EmitEvent(AppEvent),
     ShowWindow,
     HideWindow,
-    ResizeWindow { width: i32, height: i32 },
+    ResizeWindow {
+        width: i32,
+        height: i32,
+    },
     MoveWindowToNextScreen,
     CopyTextToClipboard(String),
     InjectFixtureAudio(u8),
     QuitApplication,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CoreModel {
     pub app_state: AppState,
     pub buffer: BufferState,
     pub ui_prefs: UiPrefs,
     pub log_line: String,
     pub runtime_error: Option<String>,
+    recording_stop_policy: RecordingStopPolicyState,
 }
 
 impl Default for CoreModel {
@@ -43,6 +53,7 @@ impl Default for CoreModel {
             ui_prefs: UiPrefs::default(),
             log_line: "Ready".to_owned(),
             runtime_error: None,
+            recording_stop_policy: RecordingStopPolicyState::default(),
         }
     }
 }
@@ -51,100 +62,52 @@ impl CoreModel {
     pub fn reduce(&mut self, event: AppEvent) -> Vec<CoreCommand> {
         match event {
             AppEvent::MicToggled => self.reduce_mic_toggle(),
+            AppEvent::LiveText(text) => self.reduce_live_text(text),
+            AppEvent::CommitRequested => self.reduce_commit_requested(),
+            AppEvent::RecordingStartRejected => self.reduce_recording_start_rejected(),
+
+            AppEvent::SettingsToggled => self.reduce_settings_toggled(),
+            AppEvent::TranscriptionModelChanged(model) => {
+                self.reduce_transcription_model_changed(model)
+            }
+            AppEvent::SilenceAutoStopSecondsChanged(seconds) => {
+                self.reduce_silence_auto_stop_seconds_changed(seconds)
+            }
+            AppEvent::VadSilenceDurationMsChanged(ms) => {
+                self.reduce_vad_silence_duration_ms_changed(ms)
+            }
+            AppEvent::SilenceGateThresholdChanged(threshold) => {
+                self.reduce_silence_gate_threshold_changed(threshold)
+            }
+
+            AppEvent::WindowLargerRequested => self.reduce_window_larger_requested(),
+            AppEvent::WindowSmallerRequested => self.reduce_window_smaller_requested(),
+            AppEvent::WindowResizeRequested { width, height } => {
+                self.reduce_window_resize_requested(width, height)
+            }
+            AppEvent::WindowMoveToNextScreenRequested => {
+                self.reduce_window_move_to_next_screen_requested()
+            }
+            AppEvent::VisibilityToggled => self.reduce_visibility_toggled(),
+            AppEvent::ShowRequested => self.reduce_show_requested(),
+            AppEvent::HideRequested => self.reduce_hide_requested(),
+
+            AppEvent::RuntimeError(message) => self.reduce_runtime_error(message),
+            AppEvent::ErrorCleared => self.reduce_error_cleared(),
+            AppEvent::CopyRequested => self.reduce_copy_requested(),
+
             AppEvent::ResetRequested => {
                 self.buffer.reset_all();
                 Vec::new()
-            }
-            AppEvent::WindowLargerRequested => {
-                self.resize_window_by(WINDOW_RESIZE_STEP, WINDOW_RESIZE_STEP)
-            }
-            AppEvent::WindowSmallerRequested => {
-                self.resize_window_by(-WINDOW_RESIZE_STEP, -WINDOW_RESIZE_STEP)
-            }
-            AppEvent::WindowResizeRequested { width, height } => {
-                self.resize_window_to(width, height)
-            }
-            AppEvent::WindowMoveToNextScreenRequested => {
-                self.log_line = "Move to next screen requested".to_owned();
-                vec![CoreCommand::MoveWindowToNextScreen]
             }
             AppEvent::LogMessage(message) => {
                 self.log_line = message;
                 Vec::new()
             }
-            AppEvent::LiveText(text) => {
-                self.buffer.append_live(&text);
-                self.app_state = transition(&self.app_state, &AppEvent::LiveText(text));
-                Vec::new()
-            }
-            AppEvent::CommitRequested => {
-                self.buffer.commit_live();
-                self.log_line = "Commit completed".to_owned();
-                self.app_state = transition(&self.app_state, &AppEvent::CommitRequested);
-                Vec::new()
-            }
-            AppEvent::RecordingStartRejected => {
-                if matches!(self.app_state, AppState::Recording) {
-                    self.app_state = AppState::Idle;
-                    self.log_line = "Recording start blocked".to_owned();
-                }
-                Vec::new()
-            }
-            AppEvent::SettingsToggled => {
-                self.ui_prefs.settings_open = !self.ui_prefs.settings_open;
-                self.log_line = if self.ui_prefs.settings_open {
-                    "Settings opened".to_owned()
-                } else {
-                    "Settings closed".to_owned()
-                };
-                Vec::new()
-            }
-            AppEvent::SilenceAutoStopSecondsChanged(seconds) => {
-                self.ui_prefs.silence_auto_stop_seconds = seconds.min(600);
-                self.log_line = if self.ui_prefs.silence_auto_stop_seconds == 0 {
-                    "Silence auto-stop disabled".to_owned()
-                } else {
-                    format!(
-                        "Silence auto-stop set to {}s",
-                        self.ui_prefs.silence_auto_stop_seconds
-                    )
-                };
-                Vec::new()
-            }
-            AppEvent::VadSilenceDurationMsChanged(ms) => {
-                self.ui_prefs.vad_silence_duration_ms =
-                    ms.clamp(VAD_SILENCE_DURATION_MS_MIN, VAD_SILENCE_DURATION_MS_MAX);
-                self.log_line = format!(
-                    "VAD pause set to {}ms",
-                    self.ui_prefs.vad_silence_duration_ms
-                );
-                Vec::new()
-            }
-            AppEvent::VisibilityToggled => self.reduce_visibility_toggle(),
-            AppEvent::ShowRequested => self.reduce_show_requested(),
-            AppEvent::HideRequested => self.reduce_hide_requested(),
-            AppEvent::CopyRequested => {
-                self.log_line = "Copy requested".to_owned();
-                vec![CoreCommand::CopyTextToClipboard(self.buffer.full_text())]
-            }
             AppEvent::FixtureInjectRequested(fixture_id) => {
-                self.log_line = format!("Fixture injection requested: test_{fixture_id}");
-                vec![CoreCommand::InjectFixtureAudio(fixture_id)]
+                self.reduce_fixture_inject_requested(fixture_id)
             }
-            AppEvent::QuitRequested => vec![
-                CoreCommand::StopAudioInput,
-                CoreCommand::StopTranscriber,
-                CoreCommand::QuitApplication,
-            ],
-            AppEvent::RuntimeError(message) => {
-                self.log_line = format!("Error: {message}");
-                self.runtime_error = Some(message);
-                Vec::new()
-            }
-            AppEvent::ErrorCleared => {
-                self.runtime_error = None;
-                Vec::new()
-            }
+            AppEvent::QuitRequested => self.reduce_quit_requested(),
         }
     }
 
@@ -153,88 +116,39 @@ impl CoreModel {
         self.buffer.clear_live();
     }
 
+    pub fn evaluate_recording_stop_policy(
+        &mut self,
+        now: Instant,
+        raw_input_level: f32,
+        max_recording_duration: Option<Duration>,
+    ) -> RecordingStopDecision {
+        self.recording_stop_policy.evaluate(
+            now,
+            matches!(self.app_state, AppState::Recording),
+            raw_input_level,
+            self.ui_prefs.silence_auto_stop_seconds,
+            self.ui_prefs.silence_gate_threshold,
+            max_recording_duration,
+        )
+    }
+
     pub fn set_window_position(&mut self, left: i32, top: i32) {
         self.ui_prefs.window_left = left.max(0);
         self.ui_prefs.window_top = top.max(0);
     }
 
     pub fn set_window_size(&mut self, width: i32, height: i32) {
-        self.ui_prefs.window_width = width.clamp(WINDOW_MIN_WIDTH, WINDOW_MAX_WIDTH);
-        self.ui_prefs.window_height = height.clamp(WINDOW_MIN_HEIGHT, WINDOW_MAX_HEIGHT);
-    }
-
-    fn reduce_mic_toggle(&mut self) -> Vec<CoreCommand> {
-        let was_idle = matches!(self.app_state, AppState::Idle);
-        let was_recording = matches!(self.app_state, AppState::Recording);
-        self.app_state = transition(&self.app_state, &AppEvent::MicToggled);
-
-        if was_idle && matches!(self.app_state, AppState::Recording) {
-            self.log_line = "Recording started".to_owned();
-            return vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber];
-        }
-
-        if was_recording && matches!(self.app_state, AppState::Processing) {
-            self.log_line = "Recording stopped; processing".to_owned();
-            return vec![
-                CoreCommand::StopAudioInput,
-                CoreCommand::StopTranscriberThenEmit(AppEvent::CommitRequested),
-            ];
-        }
-
-        Vec::new()
-    }
-
-    fn reduce_visibility_toggle(&mut self) -> Vec<CoreCommand> {
-        self.ui_prefs.visible = !self.ui_prefs.visible;
-
-        if self.ui_prefs.visible {
-            vec![CoreCommand::ShowWindow]
-        } else {
-            vec![CoreCommand::HideWindow]
-        }
-    }
-
-    fn reduce_show_requested(&mut self) -> Vec<CoreCommand> {
-        self.ui_prefs.visible = true;
-        vec![CoreCommand::ShowWindow]
-    }
-
-    fn reduce_hide_requested(&mut self) -> Vec<CoreCommand> {
-        if !self.ui_prefs.visible {
-            return Vec::new();
-        }
-
-        self.ui_prefs.visible = false;
-        vec![CoreCommand::HideWindow]
-    }
-
-    fn resize_window_by(&mut self, width_delta: i32, height_delta: i32) -> Vec<CoreCommand> {
-        let next_width = self.ui_prefs.window_width.saturating_add(width_delta);
-        let next_height = self.ui_prefs.window_height.saturating_add(height_delta);
-        self.set_window_size(next_width, next_height);
-        self.log_line = format!(
-            "Window resized to {}x{}",
-            self.ui_prefs.window_width, self.ui_prefs.window_height
-        );
-        vec![CoreCommand::ResizeWindow {
-            width: self.ui_prefs.window_width,
-            height: self.ui_prefs.window_height,
-        }]
-    }
-
-    fn resize_window_to(&mut self, width: i32, height: i32) -> Vec<CoreCommand> {
-        self.set_window_size(width, height);
-        vec![CoreCommand::ResizeWindow {
-            width: self.ui_prefs.window_width,
-            height: self.ui_prefs.window_height,
-        }]
+        self.ui_prefs.window_width =
+            width.clamp(window::WINDOW_MIN_WIDTH, window::WINDOW_MAX_WIDTH);
+        self.ui_prefs.window_height =
+            height.clamp(window::WINDOW_MIN_HEIGHT, window::WINDOW_MAX_HEIGHT);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CoreCommand, CoreModel};
-    use crate::{AppEvent, AppState};
+    use crate::{AppEvent, AppState, TranscriptionModelId};
 
     #[test]
     fn mic_toggle_from_idle_starts_recording_pipeline() {
@@ -245,7 +159,13 @@ mod tests {
         assert_eq!(model.app_state, AppState::Recording);
         assert_eq!(
             commands,
-            vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber,]
+            vec![
+                CoreCommand::StartAudioInput,
+                CoreCommand::StartTranscriber {
+                    model: TranscriptionModelId::Gpt4oMiniTranscribe,
+                    vad_silence_duration_ms: 1_600,
+                },
+            ]
         );
     }
 
@@ -322,6 +242,24 @@ mod tests {
     }
 
     #[test]
+    fn transcription_model_update_is_core_owned() {
+        let mut model = CoreModel::default();
+        assert_eq!(
+            model.ui_prefs.transcription_model,
+            TranscriptionModelId::Gpt4oMiniTranscribe
+        );
+
+        let commands = model.reduce(AppEvent::TranscriptionModelChanged(
+            TranscriptionModelId::Gpt4oTranscribe,
+        ));
+        assert!(commands.is_empty());
+        assert_eq!(
+            model.ui_prefs.transcription_model,
+            TranscriptionModelId::Gpt4oTranscribe
+        );
+    }
+
+    #[test]
     fn vad_silence_duration_update_is_core_owned() {
         let mut model = CoreModel::default();
         assert_eq!(model.ui_prefs.vad_silence_duration_ms, 1_600);
@@ -333,6 +271,20 @@ mod tests {
         let commands = model.reduce(AppEvent::VadSilenceDurationMsChanged(20));
         assert!(commands.is_empty());
         assert_eq!(model.ui_prefs.vad_silence_duration_ms, 100);
+    }
+
+    #[test]
+    fn silence_gate_threshold_update_is_core_owned() {
+        let mut model = CoreModel::default();
+        assert!((model.ui_prefs.silence_gate_threshold - 0.30).abs() <= f32::EPSILON);
+
+        let commands = model.reduce(AppEvent::SilenceGateThresholdChanged(0.42));
+        assert!(commands.is_empty());
+        assert!((model.ui_prefs.silence_gate_threshold - 0.42).abs() <= f32::EPSILON);
+
+        let commands = model.reduce(AppEvent::SilenceGateThresholdChanged(9.9));
+        assert!(commands.is_empty());
+        assert!((model.ui_prefs.silence_gate_threshold - 1.0).abs() <= f32::EPSILON);
     }
 
     #[test]
