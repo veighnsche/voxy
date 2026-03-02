@@ -297,11 +297,11 @@ impl CommandBus {
                         pipeline_trace::log("command", "MoveWindowToNextScreen single_monitor");
                     }
                     Err(error) => {
-                        self.emit_runtime_error(error.clone());
                         pipeline_trace::log(
                             "command",
                             format!("MoveWindowToNextScreen error={error}"),
                         );
+                        self.emit_runtime_error(error);
                     }
                 }
             }

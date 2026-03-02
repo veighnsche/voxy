@@ -25,10 +25,14 @@ pub fn build_view_model(model: &CoreModel) -> ViewModel {
         AppState::Idle => ("Idle".to_owned(), None),
         AppState::Recording => ("Recording".to_owned(), None),
         AppState::Processing => ("Processing".to_owned(), None),
-        AppState::Error(message) => (format!("Error({message})"), Some(message.clone())),
+        AppState::Error(message) => (format!("Error({message})"), Some(message.as_str())),
     };
 
-    let error_message = model.runtime_error.clone().or(app_error_message);
+    let error_message = model
+        .runtime_error
+        .as_ref()
+        .cloned()
+        .or_else(|| app_error_message.map(str::to_owned));
 
     ViewModel {
         text: model.buffer.full_text(),

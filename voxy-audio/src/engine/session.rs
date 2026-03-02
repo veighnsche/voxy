@@ -35,7 +35,7 @@ impl SessionState {
     }
 
     pub fn route(&self) -> AudioRoute {
-        self.route.clone()
+        self.route
     }
 
     pub fn is_running(&self) -> bool {
@@ -45,7 +45,7 @@ impl SessionState {
     pub fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot {
             running: self.running,
-            route: self.route.clone(),
+            route: self.route,
         }
     }
 }

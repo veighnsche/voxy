@@ -76,43 +76,39 @@ fn build_recording_section() -> (GtkBox, SpinButton, SpinButton) {
     title.set_xalign(0.0);
     title.add_css_class("dim-label");
 
-    let timeout_adjustment = Adjustment::new(
-        10.0,
-        MIN_TIMEOUT_SECONDS,
-        MAX_TIMEOUT_SECONDS,
-        1.0,
-        5.0,
-        0.0,
-    );
-    let silence_timeout_seconds = SpinButton::new(Some(&timeout_adjustment), 1.0, 0);
-    silence_timeout_seconds.set_numeric(true);
-    silence_timeout_seconds.set_wrap(false);
-    silence_timeout_seconds.set_width_chars(4);
-    silence_timeout_seconds.set_tooltip_text(Some("0 disables silence auto-stop"));
-    let timeout_item = config_item::build_spin(
-        "Silence timeout (s)",
-        "0 = off",
-        silence_timeout_seconds.clone(),
-    );
+    let timeout_item = {
+        let timeout_adjustment = Adjustment::new(
+            10.0,
+            MIN_TIMEOUT_SECONDS,
+            MAX_TIMEOUT_SECONDS,
+            1.0,
+            5.0,
+            0.0,
+        );
+        let input = SpinButton::new(Some(&timeout_adjustment), 1.0, 0);
+        input.set_numeric(true);
+        input.set_wrap(false);
+        input.set_width_chars(4);
+        input.set_tooltip_text(Some("0 disables silence auto-stop"));
+        config_item::build_spin("Silence timeout (s)", "0 = off", input)
+    };
 
-    let vad_adjustment = Adjustment::new(
-        1600.0,
-        MIN_VAD_SILENCE_MS,
-        MAX_VAD_SILENCE_MS,
-        50.0,
-        250.0,
-        0.0,
-    );
-    let vad_silence_ms = SpinButton::new(Some(&vad_adjustment), 1.0, 0);
-    vad_silence_ms.set_numeric(true);
-    vad_silence_ms.set_wrap(false);
-    vad_silence_ms.set_width_chars(5);
-    vad_silence_ms.set_tooltip_text(Some("How long silence must last before auto-commit"));
-    let vad_item = config_item::build_spin(
-        "VAD pause (ms)",
-        "Higher = fewer split sentences",
-        vad_silence_ms.clone(),
-    );
+    let vad_item = {
+        let vad_adjustment = Adjustment::new(
+            1600.0,
+            MIN_VAD_SILENCE_MS,
+            MAX_VAD_SILENCE_MS,
+            50.0,
+            250.0,
+            0.0,
+        );
+        let input = SpinButton::new(Some(&vad_adjustment), 1.0, 0);
+        input.set_numeric(true);
+        input.set_wrap(false);
+        input.set_width_chars(5);
+        input.set_tooltip_text(Some("How long silence must last before auto-commit"));
+        config_item::build_spin("VAD pause (ms)", "Higher = fewer split sentences", input)
+    };
 
     let hint = Label::new(Some("Set silence threshold by clicking the IN meter."));
     hint.set_xalign(0.0);

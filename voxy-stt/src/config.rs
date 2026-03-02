@@ -142,15 +142,15 @@ fn load_api_key_from_dotenv_dir(dir: &Path) -> Result<Option<ApiKeyConfig>, SttC
             continue;
         }
 
-        let entries = parse_dotenv_file(&path)?;
-        if let Some(value) = entries.get(VOXY_OPENAI_API_KEY_ENV) {
-            voxy_env = Some((value.clone(), path.clone()));
+        let mut entries = parse_dotenv_file(&path)?;
+        if let Some(value) = entries.remove(VOXY_OPENAI_API_KEY_ENV) {
+            voxy_env = Some((value, path.clone()));
         }
-        if let Some(value) = entries.get(VOXY_OPENAI_API_KEY_FILE_ENV) {
-            voxy_file = Some((value.clone(), path.clone()));
+        if let Some(value) = entries.remove(VOXY_OPENAI_API_KEY_FILE_ENV) {
+            voxy_file = Some((value, path.clone()));
         }
-        if let Some(value) = entries.get(OPENAI_API_KEY_ENV) {
-            openai_env = Some((value.clone(), path.clone()));
+        if let Some(value) = entries.remove(OPENAI_API_KEY_ENV) {
+            openai_env = Some((value, path.clone()));
         }
     }
 

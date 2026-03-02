@@ -420,14 +420,13 @@ fn wire_ui_signals(
 }
 
 fn active_error_message(model: &CoreModel) -> Option<String> {
-    if let Some(message) = model.runtime_error.clone() {
-        return Some(message);
-    }
-
-    match &model.app_state {
-        AppState::Error(message) => Some(message.clone()),
-        _ => None,
-    }
+    model.runtime_error.as_ref().cloned().or_else(|| {
+        if let AppState::Error(message) = &model.app_state {
+            Some(message.clone())
+        } else {
+            None
+        }
+    })
 }
 
 fn build_error_report(model: &CoreModel, error_message: &str) -> String {

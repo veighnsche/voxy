@@ -302,7 +302,7 @@ async fn run_session_with_reconnect(
         let outcome = run_single_session_attempt(
             &tx,
             &downlink_tx,
-            audio_source.clone(),
+            audio_source.as_ref(),
             &mut uplink_rx,
             &mut stop_rx,
             &ws_url,
@@ -368,7 +368,7 @@ async fn run_session_with_reconnect(
 async fn run_single_session_attempt(
     tx: &mpsc::Sender<AppEvent>,
     downlink_tx: &broadcast::Sender<TranscriberOutput>,
-    audio_source: Option<Arc<dyn AudioFrameSource>>,
+    audio_source: Option<&Arc<dyn AudioFrameSource>>,
     uplink_rx: &mut mpsc::Receiver<TranscriberInput>,
     stop_rx: &mut oneshot::Receiver<()>,
     ws_url: &str,
@@ -492,7 +492,7 @@ async fn run_single_session_attempt(
                 }
             }
             _ = source_poll.tick(), if audio_source.is_some() => {
-                if let Some(source) = audio_source.as_ref() {
+                if let Some(source) = audio_source {
                     if let Some(frame) = source.read_frame() {
                         let seq = SOURCE_FRAME_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
                         if trace::should_log_noisy(seq) {
@@ -727,7 +727,7 @@ async fn handle_server_payload(
     if trace::should_log(seq) {
         trace::log("server", format!("parsed_event={event:?}"));
     }
-    if let Some(app_event) = map_server_event(event.clone()) {
+    if let Some(app_event) = map_server_event(&event) {
         if trace::should_log(seq) {
             trace::log("server", format!("mapped_app_event={app_event:?}"));
         }

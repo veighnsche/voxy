@@ -164,23 +164,24 @@ impl CoreModel {
     }
 
     fn reduce_mic_toggle(&mut self) -> Vec<CoreCommand> {
-        let previous = self.app_state.clone();
+        let was_idle = matches!(self.app_state, AppState::Idle);
+        let was_recording = matches!(self.app_state, AppState::Recording);
         self.app_state = transition(&self.app_state, &AppEvent::MicToggled);
 
-        match (previous, self.app_state.clone()) {
-            (AppState::Idle, AppState::Recording) => {
-                self.log_line = "Recording started".to_owned();
-                vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber]
-            }
-            (AppState::Recording, AppState::Processing) => {
-                self.log_line = "Recording stopped; processing".to_owned();
-                vec![
-                    CoreCommand::StopAudioInput,
-                    CoreCommand::StopTranscriberThenEmit(AppEvent::CommitRequested),
-                ]
-            }
-            _ => Vec::new(),
+        if was_idle && matches!(self.app_state, AppState::Recording) {
+            self.log_line = "Recording started".to_owned();
+            return vec![CoreCommand::StartAudioInput, CoreCommand::StartTranscriber];
         }
+
+        if was_recording && matches!(self.app_state, AppState::Processing) {
+            self.log_line = "Recording stopped; processing".to_owned();
+            return vec![
+                CoreCommand::StopAudioInput,
+                CoreCommand::StopTranscriberThenEmit(AppEvent::CommitRequested),
+            ];
+        }
+
+        Vec::new()
     }
 
     fn reduce_visibility_toggle(&mut self) -> Vec<CoreCommand> {

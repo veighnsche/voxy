@@ -24,9 +24,9 @@ pub fn transition(current: &AppState, event: &AppEvent) -> AppState {
             AppEvent::CommitRequested | AppEvent::ResetRequested => AppState::Idle,
             _ => AppState::Processing,
         },
-        AppState::Error(_) => match event {
+        AppState::Error(message) => match event {
             AppEvent::ResetRequested => AppState::Idle,
-            _ => current.clone(),
+            _ => AppState::Error(message.clone()),
         },
     }
 }
