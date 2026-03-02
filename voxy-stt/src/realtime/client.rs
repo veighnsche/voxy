@@ -130,6 +130,17 @@ impl OpenAiRealtimeTranscriber {
             worker: Mutex::new(WorkerState::default()),
         }
     }
+
+    fn lock_worker(
+        &self,
+        context: &'static str,
+    ) -> Result<std::sync::MutexGuard<'_, WorkerState>, TranscriberContractError> {
+        self.worker.lock().map_err(|_| {
+            TranscriberContractError::Internal(format!(
+                "realtime transcriber mutex poisoned in {context}"
+            ))
+        })
+    }
 }
 
 impl StreamingTranscriber for OpenAiRealtimeTranscriber {
@@ -137,10 +148,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
         &self,
         config: TranscriberSessionConfig,
     ) -> Result<(), TranscriberContractError> {
-        let mut worker = self
-            .worker
-            .lock()
-            .expect("realtime transcriber mutex poisoned in start");
+        let mut worker = self.lock_worker("start")?;
 
         if worker.task.is_some() {
             return Err(TranscriberContractError::AlreadyRunning);
@@ -210,10 +218,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
 
     async fn push_input(&self, input: TranscriberInput) -> Result<(), TranscriberContractError> {
         let uplink_tx = {
-            let worker = self
-                .worker
-                .lock()
-                .expect("realtime transcriber mutex poisoned in push_input");
+            let worker = self.lock_worker("push_input")?;
             worker.uplink_tx.clone()
         };
 
@@ -229,10 +234,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
 
     async fn stop(&self) -> Result<(), TranscriberContractError> {
         let (stop_tx, task) = {
-            let mut worker = self
-                .worker
-                .lock()
-                .expect("realtime transcriber mutex poisoned in stop");
+            let mut worker = self.lock_worker("stop")?;
             worker.connection_state = ConnectionState::Stopping;
             worker.uplink_tx = None;
             (worker.stop_tx.take(), worker.task.take())
@@ -246,10 +248,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
             let _ = task.await;
         }
 
-        let mut worker = self
-            .worker
-            .lock()
-            .expect("realtime transcriber mutex poisoned after stop");
+        let mut worker = self.lock_worker("stop_after_join")?;
         worker.connection_state = ConnectionState::Disconnected;
         Ok(())
     }
@@ -259,14 +258,21 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
     }
 
     fn state(&self) -> TranscriberStreamState {
-        let worker = self
-            .worker
-            .lock()
-            .expect("realtime transcriber mutex poisoned in state");
-        if worker.task.is_some() {
-            TranscriberStreamState::Streaming
-        } else {
-            TranscriberStreamState::Idle
+        match self.worker.lock() {
+            Ok(worker) => {
+                if worker.task.is_some() {
+                    TranscriberStreamState::Streaming
+                } else {
+                    TranscriberStreamState::Idle
+                }
+            }
+            Err(_) => {
+                trace::log(
+                    "state",
+                    "realtime transcriber mutex poisoned; reporting idle",
+                );
+                TranscriberStreamState::Idle
+            }
         }
     }
 }

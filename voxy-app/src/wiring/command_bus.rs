@@ -75,10 +75,13 @@ impl CommandBus {
             return false;
         }
 
-        let mut selected_model = self
-            .selected_model
-            .lock()
-            .expect("selected transcription model mutex poisoned");
+        let mut selected_model = self.selected_model.lock().unwrap_or_else(|poisoned| {
+            pipeline_trace::log(
+                "command",
+                "selected transcription model mutex poisoned; recovering",
+            );
+            poisoned.into_inner()
+        });
         *selected_model = model;
         pipeline_trace::log(
             "command",
@@ -97,7 +100,10 @@ impl CommandBus {
         let mut current = self
             .vad_silence_duration_ms
             .lock()
-            .expect("vad silence duration mutex poisoned");
+            .unwrap_or_else(|poisoned| {
+                pipeline_trace::log("command", "vad silence duration mutex poisoned; recovering");
+                poisoned.into_inner()
+            });
         *current = vad_silence_duration_ms.clamp(100, 5_000);
         pipeline_trace::log(
             "command",
@@ -138,14 +144,24 @@ impl CommandBus {
             CoreCommand::StartTranscriber => {
                 let transcriber = Arc::clone(&self.transcriber);
                 let audio_input = Arc::clone(&self.audio_input);
-                let model = *self
-                    .selected_model
-                    .lock()
-                    .expect("selected transcription model mutex poisoned");
-                let vad_silence_duration_ms = *self
-                    .vad_silence_duration_ms
-                    .lock()
-                    .expect("vad silence duration mutex poisoned");
+                let model = *self.selected_model.lock().unwrap_or_else(|poisoned| {
+                    pipeline_trace::log(
+                        "command",
+                        "selected transcription model mutex poisoned; recovering",
+                    );
+                    poisoned.into_inner()
+                });
+                let vad_silence_duration_ms =
+                    *self
+                        .vad_silence_duration_ms
+                        .lock()
+                        .unwrap_or_else(|poisoned| {
+                            pipeline_trace::log(
+                                "command",
+                                "vad silence duration mutex poisoned; recovering",
+                            );
+                            poisoned.into_inner()
+                        });
                 if !transcriber.supports_model(model) {
                     let backend = transcriber.backend_name();
                     self.emit_runtime_error(format!(

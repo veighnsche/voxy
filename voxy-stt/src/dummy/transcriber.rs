@@ -53,6 +53,17 @@ impl DummyStreamingTranscriber {
             worker: Mutex::new(WorkerState::default()),
         }
     }
+
+    fn lock_worker(
+        &self,
+        context: &'static str,
+    ) -> Result<std::sync::MutexGuard<'_, WorkerState>, TranscriberContractError> {
+        self.worker.lock().map_err(|_| {
+            TranscriberContractError::Internal(format!(
+                "dummy transcriber mutex poisoned in {context}"
+            ))
+        })
+    }
 }
 
 impl StreamingTranscriber for DummyStreamingTranscriber {
@@ -60,10 +71,7 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
         &self,
         config: TranscriberSessionConfig,
     ) -> Result<(), TranscriberContractError> {
-        let mut worker = self
-            .worker
-            .lock()
-            .expect("dummy transcriber mutex poisoned in start");
+        let mut worker = self.lock_worker("start")?;
 
         if worker.task.is_some() {
             return Err(TranscriberContractError::AlreadyRunning);
@@ -162,10 +170,7 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
 
     async fn push_input(&self, input: TranscriberInput) -> Result<(), TranscriberContractError> {
         let uplink_tx = {
-            let worker = self
-                .worker
-                .lock()
-                .expect("dummy transcriber mutex poisoned in push_input");
+            let worker = self.lock_worker("push_input")?;
             worker.uplink_tx.clone()
         };
 
@@ -181,10 +186,7 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
 
     async fn stop(&self) -> Result<(), TranscriberContractError> {
         let (stop_tx, task) = {
-            let mut worker = self
-                .worker
-                .lock()
-                .expect("dummy transcriber mutex poisoned in stop");
+            let mut worker = self.lock_worker("stop")?;
             worker.uplink_tx = None;
             (worker.stop_tx.take(), worker.task.take())
         };
@@ -206,15 +208,21 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
     }
 
     fn state(&self) -> TranscriberStreamState {
-        let worker = self
-            .worker
-            .lock()
-            .expect("dummy transcriber mutex poisoned in state");
-
-        if worker.task.is_some() {
-            TranscriberStreamState::Streaming
-        } else {
-            TranscriberStreamState::Idle
+        match self.worker.lock() {
+            Ok(worker) => {
+                if worker.task.is_some() {
+                    TranscriberStreamState::Streaming
+                } else {
+                    TranscriberStreamState::Idle
+                }
+            }
+            Err(_) => {
+                trace::log(
+                    "dummy/state",
+                    "dummy transcriber mutex poisoned; reporting idle",
+                );
+                TranscriberStreamState::Idle
+            }
         }
     }
 }

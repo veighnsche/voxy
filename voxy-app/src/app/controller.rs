@@ -37,7 +37,13 @@ const GATE_THRESHOLD_SAVE_EPSILON: f32 = 0.0005;
 const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
 
 pub fn run() {
-    let runtime = wiring::runtime::build();
+    let runtime = match wiring::runtime::build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("failed to create tokio runtime: {error}");
+            return;
+        }
+    };
     let app = lifecycle::build_application();
 
     app.connect_activate(move |app| activate(app, Arc::clone(&runtime)));

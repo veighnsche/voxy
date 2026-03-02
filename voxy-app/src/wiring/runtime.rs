@@ -2,6 +2,6 @@ use std::sync::Arc;
 
 use tokio::runtime::Runtime;
 
-pub fn build() -> Arc<Runtime> {
-    Arc::new(Runtime::new().expect("failed to create tokio runtime"))
+pub fn build() -> Result<Arc<Runtime>, std::io::Error> {
+    Runtime::new().map(Arc::new)
 }

@@ -204,9 +204,13 @@ impl InputEngine {
             ));
         }
 
-        let queue = injected_samples
-            .as_mut()
-            .expect("injected sample queue must be initialized");
+        let Some(queue) = injected_samples.as_mut() else {
+            return Err(AudioError::FixtureDecode {
+                path: fixture_path.display().to_string(),
+                message: "internal invariant failed: injected sample queue was not initialized"
+                    .to_owned(),
+            });
+        };
         let added_samples = sample_buffer.len();
         queue.samples.extend(sample_buffer);
         trace::log(
@@ -502,10 +506,11 @@ fn fixture_audio_path(fixture_id: u8) -> PathBuf {
 }
 
 fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
         .parent()
-        .expect("workspace root should be parent of voxy-audio")
-        .to_path_buf()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or(manifest_dir)
 }
 
 impl AudioInput for InputEngine {
