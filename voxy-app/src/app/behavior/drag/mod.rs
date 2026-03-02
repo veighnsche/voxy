@@ -4,4 +4,4 @@ mod hit_test;
 mod invariants;
 mod session;
 
-pub use gesture::connect_drag_surface;
+pub(crate) use gesture::connect_drag_surface;

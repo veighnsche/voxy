@@ -1,37 +1,24 @@
-use std::{
-    cell::Cell, env, fs, os::fd::AsRawFd, os::unix::net::UnixStream, path::PathBuf, rc::Rc,
-    sync::OnceLock, time::Instant,
-};
+use std::{cell::Cell, rc::Rc, sync::OnceLock, time::Instant};
 
 use gtk4::{prelude::*, ApplicationWindow, GestureClick, GestureDrag};
-use gtk4_layer_shell::{Edge, LayerShell};
+use gtk4_layer_shell::LayerShell;
 
-use super::{
+use crate::app::behavior::drag::{
     hit_test,
     session::{DragBounds, DragSession},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DragMathMode {
-    LegacyIncremental,
-    PointerAnchor,
-}
+use super::{
+    guards::{self, DragMathMode},
+    math,
+};
 
-impl DragMathMode {
-    fn label(self) -> &'static str {
-        match self {
-            Self::LegacyIncremental => "legacy",
-            Self::PointerAnchor => "anchor",
-        }
-    }
-}
-
-pub fn connect_drag_surface(
+pub(crate) fn connect_drag_surface(
     window: &ApplicationWindow,
     on_position: impl Fn(i32, i32) + 'static,
     on_double_click: impl Fn() + 'static,
 ) {
-    let drag_math_mode = detect_drag_math_mode();
+    let drag_math_mode = guards::detect_drag_math_mode();
     let drag_gesture = GestureDrag::new();
     drag_gesture.set_button(1);
     drag_gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -58,14 +45,14 @@ pub fn connect_drag_surface(
                 return;
             }
 
-            let base_left = window_for_start.margin(Edge::Left);
-            let base_top = window_for_start.margin(Edge::Top);
+            let base_left = window_for_start.margin(gtk4_layer_shell::Edge::Left);
+            let base_top = window_for_start.margin(gtk4_layer_shell::Edge::Top);
             drag_session.begin(base_left, base_top);
             let start_abs_x = (base_left as f64) + start_x;
             let start_abs_y = (base_top as f64) + start_y;
             trace_state.begin(base_left, base_top, start_abs_x, start_abs_y);
             trace_drag(|| {
-                let scale_factor = current_scale_factor(&window_for_start);
+                let scale_factor = math::current_scale_factor(&window_for_start);
                 Some(format!(
                     "b s={start_x:.1},{start_y:.1} b={base_left},{base_top} sf={scale_factor} mode={} a0={start_abs_x:.1},{start_abs_y:.1}",
                     drag_math_mode.label()
@@ -84,11 +71,11 @@ pub fn connect_drag_surface(
                 return;
             }
 
-            let bounds = current_drag_bounds(&window_for_update);
+            let bounds = math::current_drag_bounds(&window_for_update);
             let next_position = match drag_math_mode {
                 DragMathMode::LegacyIncremental => {
-                    let current_left = window_for_update.margin(Edge::Left);
-                    let current_top = window_for_update.margin(Edge::Top);
+                    let current_left = window_for_update.margin(gtk4_layer_shell::Edge::Left);
+                    let current_top = window_for_update.margin(gtk4_layer_shell::Edge::Top);
                     drag_session.position_for_incremental(
                         current_left,
                         current_top,
@@ -97,7 +84,7 @@ pub fn connect_drag_surface(
                         bounds,
                     )
                 }
-                DragMathMode::PointerAnchor => pointer_abs(&window_for_update)
+                DragMathMode::PointerAnchor => math::pointer_abs(&window_for_update)
                     .and_then(|(pointer_abs_x, pointer_abs_y)| {
                         let (anchor_x, anchor_y) = trace_state.pointer_anchor();
                         let raw_left = pointer_abs_x - anchor_x;
@@ -151,163 +138,6 @@ pub fn connect_drag_surface(
 
     window.add_controller(drag_gesture);
     window.add_controller(click_gesture);
-}
-
-fn current_scale_factor(window: &ApplicationWindow) -> i32 {
-    window
-        .surface()
-        .map(|surface| surface.scale_factor())
-        .unwrap_or_else(|| window.scale_factor())
-        .max(1)
-}
-
-fn detect_drag_math_mode() -> DragMathMode {
-    if let Some(mode) = drag_math_mode_override() {
-        return mode;
-    }
-
-    let compositor_name = detect_wayland_compositor_name();
-    drag_math_mode_for_compositor_name(compositor_name.as_deref())
-}
-
-fn drag_math_mode_override() -> Option<DragMathMode> {
-    let raw = env::var("VOXY_DRAG_MATH").ok()?;
-    let value = raw.trim().to_ascii_lowercase();
-    match value.as_str() {
-        "legacy" | "kde" | "incremental" => Some(DragMathMode::LegacyIncremental),
-        "anchor" | "niri" | "pointer" => Some(DragMathMode::PointerAnchor),
-        _ => None,
-    }
-}
-
-fn drag_math_mode_for_compositor_name(compositor_name: Option<&str>) -> DragMathMode {
-    let Some(name) = compositor_name else {
-        return DragMathMode::LegacyIncremental;
-    };
-
-    let normalized = name.to_ascii_lowercase();
-    if normalized.contains("niri") {
-        DragMathMode::PointerAnchor
-    } else {
-        DragMathMode::LegacyIncremental
-    }
-}
-
-fn detect_wayland_compositor_name() -> Option<String> {
-    let socket_path = detect_wayland_socket_path()?;
-    let stream = UnixStream::connect(&socket_path).ok()?;
-    let pid = peer_pid(stream.as_raw_fd())?;
-
-    read_proc_comm(pid).or_else(|| read_proc_exe_name(pid))
-}
-
-fn detect_wayland_socket_path() -> Option<PathBuf> {
-    let wayland_display = env::var("WAYLAND_DISPLAY").ok()?;
-    let display_path = PathBuf::from(&wayland_display);
-    if display_path.is_absolute() {
-        return Some(display_path);
-    }
-
-    let runtime_dir = env::var("XDG_RUNTIME_DIR").ok()?;
-    Some(PathBuf::from(runtime_dir).join(display_path))
-}
-
-fn peer_pid(fd: std::os::fd::RawFd) -> Option<u32> {
-    let mut ucred = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    let rc = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            &mut ucred as *mut libc::ucred as *mut libc::c_void,
-            &mut len,
-        )
-    };
-    if rc != 0 || len as usize != std::mem::size_of::<libc::ucred>() || ucred.pid <= 0 {
-        return None;
-    }
-
-    Some(ucred.pid as u32)
-}
-
-fn read_proc_comm(pid: u32) -> Option<String> {
-    let path = format!("/proc/{pid}/comm");
-    let content = fs::read_to_string(path).ok()?;
-    let name = content.trim();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_owned())
-    }
-}
-
-fn read_proc_exe_name(pid: u32) -> Option<String> {
-    let path = format!("/proc/{pid}/exe");
-    let target = fs::read_link(path).ok()?;
-    target
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{drag_math_mode_for_compositor_name, DragMathMode};
-
-    #[test]
-    fn niri_uses_anchor_mode() {
-        assert_eq!(
-            drag_math_mode_for_compositor_name(Some("niri")),
-            DragMathMode::PointerAnchor
-        );
-        assert_eq!(
-            drag_math_mode_for_compositor_name(Some("Niri")),
-            DragMathMode::PointerAnchor
-        );
-    }
-
-    #[test]
-    fn kwin_and_unknown_default_to_legacy_mode() {
-        assert_eq!(
-            drag_math_mode_for_compositor_name(Some("kwin_wayland")),
-            DragMathMode::LegacyIncremental
-        );
-        assert_eq!(
-            drag_math_mode_for_compositor_name(Some("sway")),
-            DragMathMode::LegacyIncremental
-        );
-        assert_eq!(
-            drag_math_mode_for_compositor_name(None),
-            DragMathMode::LegacyIncremental
-        );
-    }
-}
-
-fn current_drag_bounds(window: &ApplicationWindow) -> DragBounds {
-    let (monitor_width, monitor_height) = window
-        .surface()
-        .and_then(|surface| surface.display().monitor_at_surface(&surface))
-        .map(|monitor| {
-            let geometry = monitor.geometry();
-            (geometry.width(), geometry.height())
-        })
-        .unwrap_or_else(|| {
-            let width = window.width().max(window.default_width()).max(1);
-            let height = window.height().max(window.default_height()).max(1);
-            (width, height)
-        });
-
-    let window_width = window.width().max(window.default_width()).max(1);
-    let window_height = window.height().max(window.default_height()).max(1);
-    let max_left = monitor_width - window_width;
-    let max_top = monitor_height - window_height;
-
-    DragBounds::from_extents(max_left, max_top)
 }
 
 #[derive(Default)]
@@ -377,8 +207,8 @@ fn trace_update(
         }
 
         let elapsed = trace_state.elapsed_ms();
-        let scale_factor = current_scale_factor(window);
-        let (abs_x, abs_y, drift_x, drift_y) = match pointer_abs(window) {
+        let scale_factor = math::current_scale_factor(window);
+        let (abs_x, abs_y, drift_x, drift_y) = match math::pointer_abs(window) {
             Some((pointer_abs_x, pointer_abs_y)) => {
                 let pointer_dx = pointer_abs_x - trace_state.start_abs_x.get();
                 let pointer_dy = pointer_abs_y - trace_state.start_abs_y.get();
@@ -401,20 +231,12 @@ fn trace_update(
 
         Some(format!(
             "u#{seq} t={elapsed}ms o={offset_x:.1},{offset_y:.1} p={left},{top} sf={scale_factor} b={},{} m={},{} a={abs_x},{abs_y} d={drift_x},{drift_y}",
-            bounds.max_left, bounds.max_top, window.width(), window.height()
+            bounds.max_left,
+            bounds.max_top,
+            window.width(),
+            window.height()
         ))
     });
-}
-
-fn pointer_abs(window: &ApplicationWindow) -> Option<(f64, f64)> {
-    let surface = window.surface()?;
-    let display = surface.display();
-    let seat = display.default_seat()?;
-    let pointer = seat.pointer()?;
-    let (local_x, local_y, _) = surface.device_position(&pointer)?;
-    let margin_left = window.margin(Edge::Left) as f64;
-    let margin_top = window.margin(Edge::Top) as f64;
-    Some((margin_left + local_x, margin_top + local_y))
 }
 
 fn trace_drag(build_message: impl FnOnce() -> Option<String>) {
