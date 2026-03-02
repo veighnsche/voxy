@@ -32,26 +32,26 @@ recommend_install_cmd() {
   fi
 
   if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
-    echo "sudo apt-get update && sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev libasound2-dev"
+    echo "sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build git pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev libasound2-dev"
     return
   fi
 
   if [[ "$id" =~ (fedora|ultramarine|rhel|centos|rocky|almalinux) || "$like" =~ fedora ]]; then
-    echo "sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-lib-devel"
+    echo "sudo dnf install -y gcc-c++ cmake ninja-build git pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-lib-devel"
     return
   fi
 
   if [[ "$id" =~ (arch|manjaro|endeavouros) || "$like" =~ arch ]]; then
-    echo "sudo pacman -S --needed pkgconf gtk4 graphene gtk4-layer-shell alsa-lib"
+    echo "sudo pacman -S --needed base-devel cmake ninja git pkgconf gtk4 graphene gtk4-layer-shell alsa-lib"
     return
   fi
 
   if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
-    echo "sudo zypper install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-devel"
+    echo "sudo zypper install -y gcc-c++ cmake ninja git pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-devel"
     return
   fi
 
-  echo "Install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
+  echo "Install packages that provide: git, cmake, C/C++ build tools, pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
 }
 
 check_command() {
@@ -79,6 +79,8 @@ check_pkg() {
 echo "== Voxy Dev Environment Doctor =="
 
 check_command cargo
+check_command git
+check_command cmake
 check_command pkg-config
 
 if command -v pkg-config >/dev/null 2>&1; then

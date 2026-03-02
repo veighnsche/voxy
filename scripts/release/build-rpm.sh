@@ -51,25 +51,31 @@ mkdir -p \
   "${rpm_topdir}/SRPMS" \
   "${stage_dir}/usr/bin" \
   "${stage_dir}/usr/share/applications" \
+  "${stage_dir}/usr/share/icons/hicolor/scalable/apps" \
+  "${stage_dir}/usr/share/metainfo" \
   "${stage_dir}/usr/share/licenses/${package_name}"
 
 install -m 0755 "${binary_src}" "${stage_dir}/usr/bin/${binary_name}"
 install -m 0644 "${repo_root}/LICENSE" "${stage_dir}/usr/share/licenses/${package_name}/LICENSE"
+install -m 0644 "${repo_root}/assets/icons/hicolor/scalable/apps/${app_id}.svg" \
+  "${stage_dir}/usr/share/icons/hicolor/scalable/apps/${app_id}.svg"
+install -m 0644 "${repo_root}/assets/metainfo/${app_id}.metainfo.xml" \
+  "${stage_dir}/usr/share/metainfo/${app_id}.metainfo.xml"
 
-cat > "${stage_dir}/usr/share/applications/${app_id}.desktop" <<EOF
+cat > "${stage_dir}/usr/share/applications/${app_id}.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Version=1.0
 Name=Voxy
 Comment=Wayland-native GTK4 app for live transcription
 Exec=${binary_name}
-Icon=audio-input-microphone
+Icon=${app_id}
 Terminal=false
 Categories=AudioVideo;Utility;
 StartupNotify=true
-EOF
+DESKTOP
 
-cat > "${spec_path}" <<EOF
+cat > "${spec_path}" <<SPEC
 %global debug_package %{nil}
 
 Name:           ${package_name}
@@ -96,11 +102,13 @@ cp -a "${stage_dir}/." "%{buildroot}/"
 %license /usr/share/licenses/${package_name}/LICENSE
 /usr/bin/${binary_name}
 /usr/share/applications/${app_id}.desktop
+/usr/share/icons/hicolor/scalable/apps/${app_id}.svg
+/usr/share/metainfo/${app_id}.metainfo.xml
 
 %changelog
 * $(LC_ALL=C date '+%a %b %d %Y') ${packager} - ${version}-${release}
 - Automated local RPM build
-EOF
+SPEC
 
 echo "Building RPM package..."
 rpmbuild -bb "${spec_path}" \

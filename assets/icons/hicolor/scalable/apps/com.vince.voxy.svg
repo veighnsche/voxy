@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Voxy icon">
+  <rect width="128" height="128" rx="28" fill="#1f2937"/>
+  <rect x="42" y="20" width="44" height="64" rx="22" fill="#f9fafb"/>
+  <rect x="56" y="84" width="16" height="24" rx="8" fill="#f9fafb"/>
+  <rect x="40" y="102" width="48" height="10" rx="5" fill="#f9fafb"/>
+  <path d="M30 60c0 19 15 34 34 34s34-15 34-34" fill="none" stroke="#f9fafb" stroke-width="8" stroke-linecap="round"/>
+</svg>

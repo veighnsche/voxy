@@ -20,6 +20,10 @@ like="${ID_LIKE:-}"
 if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
   sudo apt-get update
   sudo apt-get install -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
     pkg-config \
     libgtk-4-dev \
     libgraphene-1.0-dev \
@@ -30,6 +34,10 @@ fi
 
 if [[ "$id" =~ (fedora|ultramarine|rhel|centos|rocky|almalinux) || "$like" =~ fedora ]]; then
   sudo dnf install -y \
+    gcc-c++ \
+    cmake \
+    ninja-build \
+    git \
     pkgconf-pkg-config \
     gtk4-devel \
     graphene-devel \
@@ -40,6 +48,10 @@ fi
 
 if [[ "$id" =~ (arch|manjaro|endeavouros) || "$like" =~ arch ]]; then
   sudo pacman -S --needed \
+    base-devel \
+    cmake \
+    ninja \
+    git \
     pkgconf \
     gtk4 \
     graphene \
@@ -50,6 +62,10 @@ fi
 
 if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
   sudo zypper install -y \
+    gcc-c++ \
+    cmake \
+    ninja \
+    git \
     pkgconf-pkg-config \
     gtk4-devel \
     graphene-devel \
@@ -59,5 +75,5 @@ if [[ "$id" =~ (opensuse|sles|sled) || "$like" =~ suse ]]; then
 fi
 
 echo "Unsupported distribution: ID='${id}' ID_LIKE='${like}'"
-echo "Please install packages that provide: pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
+echo "Please install packages that provide: git, cmake, C/C++ build tools, pkg-config, gtk4.pc, graphene-gobject-1.0.pc, gtk4-layer-shell-0.pc, alsa.pc"
 exit 1

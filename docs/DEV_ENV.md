@@ -51,6 +51,11 @@ You can tune live-text responsiveness with environment variables:
   - Supported values: `openai_api`, `openai`, `dummy`
 - `VOXY_UI_EVENT_POLL_MS` (default `16`): GTK event-loop drain cadence.
 - `VOXY_STT_SOURCE_POLL_MS` (default `20`): realtime uplink source polling cadence.
+- `VOXY_STT_VAD_SILENCE_MS` (default `1600`): server VAD silence window before auto-commit.
+- `VOXY_STT_RECONNECT_ENABLED` (default `true`): enable reconnect loop after retryable websocket failures.
+- `VOXY_STT_RECONNECT_MAX_RETRIES` (default `0` = unlimited): maximum reconnect retries before surfacing fatal failure.
+- `VOXY_STT_RECONNECT_BASE_MS` (default `250`): initial reconnect backoff delay.
+- `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
 - `VOXY_AUDIO_FRAME_MS` (default `20`): CPAL frame duration per audio chunk.
 - `VOXY_MAX_RECORDING_SECONDS` (default `1800`): hard stop to prevent runaway recording sessions (`0` disables).
 - `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence auto-stop timeout shown in settings (`0` disables).
@@ -58,6 +63,7 @@ You can tune live-text responsiveness with environment variables:
 Settings persistence:
 - Silence timeout is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
 - Silence gate threshold (IN meter click position) is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
+- VAD silence window (Settings -> Recording -> VAD pause) is persisted to `$XDG_CONFIG_HOME/voxy/settings.json`.
 - If `XDG_CONFIG_HOME` is unset, fallback path is `~/.config/voxy/settings.json`.
 
 Example:

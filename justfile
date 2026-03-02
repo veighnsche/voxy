@@ -38,7 +38,9 @@ gui: doctor
     cargo run -p voxy-app
 
 gui-trace every="10": doctor
-    VOXY_TRACE_PIPELINE=1 VOXY_TRACE_PIPELINE_EVERY={{every}} cargo run -p voxy-app
+    VOXY_TRACE_PIPELINE=1 \
+    VOXY_TRACE_PIPELINE_EVERY={{every}} \
+    cargo run -p voxy-app
 
 # Canonical UI dev entry point:
 # - with watcher: restarts app on source/config changes

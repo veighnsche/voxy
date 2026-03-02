@@ -9,11 +9,17 @@ fi
 app_name="Voxy"
 app_id="com.vince.voxy"
 binary_name="voxy-app"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_root}"
 
 bin_dir="${HOME}/.local/bin"
 apps_dir="${HOME}/.local/share/applications"
+icons_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
+metainfo_dir="${HOME}/.local/share/metainfo"
 installed_bin="${bin_dir}/${binary_name}"
 desktop_file="${apps_dir}/${app_id}.desktop"
+icon_file="${icons_dir}/${app_id}.svg"
+metainfo_file="${metainfo_dir}/${app_id}.metainfo.xml"
 
 echo "Building release binary..."
 cargo build --release -p voxy-app
@@ -23,8 +29,10 @@ if [[ ! -x "target/release/${binary_name}" ]]; then
   exit 1
 fi
 
-mkdir -p "${bin_dir}" "${apps_dir}"
+mkdir -p "${bin_dir}" "${apps_dir}" "${icons_dir}" "${metainfo_dir}"
 install -m 0755 "target/release/${binary_name}" "${installed_bin}"
+install -m 0644 "${repo_root}/assets/icons/hicolor/scalable/apps/${app_id}.svg" "${icon_file}"
+install -m 0644 "${repo_root}/assets/metainfo/${app_id}.metainfo.xml" "${metainfo_file}"
 
 escaped_exec="${installed_bin// /\\ }"
 
@@ -35,7 +43,7 @@ Version=1.0
 Name=${app_name}
 Comment=Wayland-native GTK4 app for live transcription
 Exec=${escaped_exec}
-Icon=audio-input-microphone
+Icon=${app_id}
 Terminal=false
 Categories=AudioVideo;Utility;
 StartupNotify=true
@@ -58,7 +66,12 @@ chmod +x "${desktop_shortcut}"
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "${apps_dir}" >/dev/null 2>&1 || true
 fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t "${HOME}/.local/share/icons/hicolor" >/dev/null 2>&1 || true
+fi
 
 echo "Installed binary: ${installed_bin}"
 echo "Installed launcher: ${desktop_file}"
+echo "Installed icon: ${icon_file}"
+echo "Installed metainfo: ${metainfo_file}"
 echo "Desktop shortcut: ${desktop_shortcut}"
