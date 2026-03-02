@@ -27,6 +27,8 @@ pub struct Widgets {
     pub log_display: Label,
     pub error_revealer: Revealer,
     pub error_message_label: Label,
+    pub error_copy_button: Button,
+    pub error_dismiss_button: Button,
 }
 
 pub fn build(app: &Application) -> Widgets {
@@ -51,6 +53,8 @@ pub fn build(app: &Application) -> Widgets {
         log_display: template.footer_status.log_display,
         error_revealer: template.error_banner.revealer,
         error_message_label: template.error_banner.message,
+        error_copy_button: template.error_banner.copy_button,
+        error_dismiss_button: template.error_banner.dismiss_button,
     }
 }
 
@@ -87,11 +91,17 @@ pub fn render(widgets: &Widgets, view_model: &ViewModel, applying_text_update: &
         widgets.content_stack.set_visible_child_name("transcript");
     }
 
-    organisms::settings_pane::render(&widgets.settings_pane, view_model.silence_timeout_seconds);
+    organisms::settings_pane::render(
+        &widgets.settings_pane,
+        view_model.silence_timeout_seconds,
+        view_model.vad_silence_ms,
+    );
 
     let error_banner = organisms::error_banner::ErrorBanner {
         revealer: widgets.error_revealer.clone(),
         message: widgets.error_message_label.clone(),
+        copy_button: widgets.error_copy_button.clone(),
+        dismiss_button: widgets.error_dismiss_button.clone(),
     };
     organisms::error_banner::render(&error_banner, view_model.error_message.as_deref());
 }

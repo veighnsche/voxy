@@ -5,6 +5,8 @@ const WINDOW_MIN_WIDTH: i32 = 280;
 const WINDOW_MIN_HEIGHT: i32 = 320;
 const WINDOW_MAX_WIDTH: i32 = 960;
 const WINDOW_MAX_HEIGHT: i32 = 1280;
+const VAD_SILENCE_DURATION_MS_MIN: u32 = 100;
+const VAD_SILENCE_DURATION_MS_MAX: u32 = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreCommand {
@@ -81,6 +83,13 @@ impl CoreModel {
                 self.app_state = transition(&self.app_state, &AppEvent::CommitRequested);
                 Vec::new()
             }
+            AppEvent::RecordingStartRejected => {
+                if matches!(self.app_state, AppState::Recording) {
+                    self.app_state = AppState::Idle;
+                    self.log_line = "Recording start blocked".to_owned();
+                }
+                Vec::new()
+            }
             AppEvent::SettingsToggled => {
                 self.ui_prefs.settings_open = !self.ui_prefs.settings_open;
                 self.log_line = if self.ui_prefs.settings_open {
@@ -100,6 +109,15 @@ impl CoreModel {
                         self.ui_prefs.silence_auto_stop_seconds
                     )
                 };
+                Vec::new()
+            }
+            AppEvent::VadSilenceDurationMsChanged(ms) => {
+                self.ui_prefs.vad_silence_duration_ms =
+                    ms.clamp(VAD_SILENCE_DURATION_MS_MIN, VAD_SILENCE_DURATION_MS_MAX);
+                self.log_line = format!(
+                    "VAD pause set to {}ms",
+                    self.ui_prefs.vad_silence_duration_ms
+                );
                 Vec::new()
             }
             AppEvent::VisibilityToggled => self.reduce_visibility_toggle(),
@@ -303,6 +321,20 @@ mod tests {
     }
 
     #[test]
+    fn vad_silence_duration_update_is_core_owned() {
+        let mut model = CoreModel::default();
+        assert_eq!(model.ui_prefs.vad_silence_duration_ms, 1_600);
+
+        let commands = model.reduce(AppEvent::VadSilenceDurationMsChanged(1_800));
+        assert!(commands.is_empty());
+        assert_eq!(model.ui_prefs.vad_silence_duration_ms, 1_800);
+
+        let commands = model.reduce(AppEvent::VadSilenceDurationMsChanged(20));
+        assert!(commands.is_empty());
+        assert_eq!(model.ui_prefs.vad_silence_duration_ms, 100);
+    }
+
+    #[test]
     fn hide_requested_is_idempotent() {
         let mut model = CoreModel::default();
         model.ui_prefs.visible = false;
@@ -398,6 +430,20 @@ mod tests {
         let _ = model.reduce(AppEvent::RuntimeError("test".to_owned()));
 
         assert_eq!(model.app_state, AppState::Recording);
+    }
+
+    #[test]
+    fn recording_start_rejected_rolls_back_recording_state() {
+        let mut model = CoreModel {
+            app_state: AppState::Recording,
+            ..CoreModel::default()
+        };
+
+        let commands = model.reduce(AppEvent::RecordingStartRejected);
+
+        assert!(commands.is_empty());
+        assert_eq!(model.app_state, AppState::Idle);
+        assert_eq!(model.log_line, "Recording start blocked");
     }
 
     #[test]

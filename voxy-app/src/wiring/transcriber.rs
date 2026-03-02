@@ -6,12 +6,13 @@ use voxy_core::AppEvent;
 use voxy_stt::{
     DummyStreamingTranscriber, OpenAiRealtimeTranscriber, StreamingTranscriber,
     TranscriberContractError, TranscriberInput, TranscriberOutput, TranscriberSessionConfig,
-    TranscriberStreamState,
+    TranscriberStreamState, TranscriptionModel,
 };
 
 use crate::diagnostics::pipeline_trace;
 
 const STT_BACKEND_ENV: &str = "VOXY_STT_BACKEND";
+const STT_BACKEND_AUTO: &str = "auto";
 const STT_BACKEND_DUMMY: &str = "dummy";
 const STT_BACKEND_OPENAI_API: &str = "openai_api";
 const STT_BACKEND_OPENAI_API_ALIAS: &str = "openai";
@@ -26,11 +27,8 @@ impl AppTranscriber {
         event_tx: mpsc::Sender<AppEvent>,
         audio_source: Option<Arc<dyn AudioFrameSource>>,
     ) -> Self {
-        let backend = env::var(STT_BACKEND_ENV)
-            .ok()
-            .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| STT_BACKEND_OPENAI_API.to_owned());
+        let backend_raw = env::var(STT_BACKEND_ENV).ok();
+        let backend = normalize_backend_value(backend_raw.as_deref());
         pipeline_trace::log(
             "transcriber",
             format!("VOXY_STT_BACKEND resolved to '{backend}'"),
@@ -41,7 +39,7 @@ impl AppTranscriber {
                 pipeline_trace::log("transcriber", "using dummy backend");
                 Self::Dummy(DummyStreamingTranscriber::new(event_tx, audio_source))
             }
-            STT_BACKEND_OPENAI_API | STT_BACKEND_OPENAI_API_ALIAS => {
+            STT_BACKEND_OPENAI_API | STT_BACKEND_OPENAI_API_ALIAS | STT_BACKEND_AUTO => {
                 pipeline_trace::log("transcriber", "using openai_api backend");
                 Self::OpenAiApi(OpenAiRealtimeTranscriber::new(event_tx, audio_source))
             }
@@ -60,6 +58,10 @@ impl AppTranscriber {
             Self::Dummy(_) => STT_BACKEND_DUMMY,
             Self::OpenAiApi(_) => STT_BACKEND_OPENAI_API,
         }
+    }
+
+    pub fn supports_model(&self, _model: TranscriptionModel) -> bool {
+        true
     }
 }
 
@@ -100,5 +102,29 @@ impl StreamingTranscriber for AppTranscriber {
             Self::Dummy(transcriber) => transcriber.state(),
             Self::OpenAiApi(transcriber) => transcriber.state(),
         }
+    }
+}
+
+fn normalize_backend_value(value: Option<&str>) -> String {
+    value
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| STT_BACKEND_OPENAI_API.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_backend_value, STT_BACKEND_OPENAI_API};
+
+    #[test]
+    fn normalize_backend_defaults_to_openai_api_when_missing_or_blank() {
+        assert_eq!(normalize_backend_value(None), STT_BACKEND_OPENAI_API);
+        assert_eq!(normalize_backend_value(Some("   ")), STT_BACKEND_OPENAI_API);
+    }
+
+    #[test]
+    fn normalize_backend_trims_and_lowercases_values() {
+        assert_eq!(normalize_backend_value(Some("  DUMMY  ")), "dummy");
+        assert_eq!(normalize_backend_value(Some(" OpenAI ")), "openai");
     }
 }

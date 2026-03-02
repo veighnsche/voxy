@@ -16,6 +16,7 @@ pub fn transition(current: &AppState, event: &AppEvent) -> AppState {
         },
         AppState::Recording => match event {
             AppEvent::MicToggled => AppState::Processing,
+            AppEvent::RecordingStartRejected => AppState::Idle,
             AppEvent::ResetRequested => AppState::Idle,
             _ => AppState::Recording,
         },

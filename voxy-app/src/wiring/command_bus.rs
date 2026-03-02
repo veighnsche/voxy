@@ -23,6 +23,7 @@ pub struct CommandBus {
     app: Application,
     layer_shell_backend: behavior::surface::layer_shell::LayerShellBackend,
     selected_model: Arc<Mutex<TranscriptionModel>>,
+    vad_silence_duration_ms: Arc<Mutex<u32>>,
 }
 
 impl CommandBus {
@@ -35,6 +36,7 @@ impl CommandBus {
         app: Application,
         layer_shell_backend: behavior::surface::layer_shell::LayerShellBackend,
         selected_model: Arc<Mutex<TranscriptionModel>>,
+        vad_silence_duration_ms: Arc<Mutex<u32>>,
     ) -> Self {
         Self {
             event_tx,
@@ -45,21 +47,62 @@ impl CommandBus {
             app,
             layer_shell_backend,
             selected_model,
+            vad_silence_duration_ms,
         }
     }
 
-    pub fn set_transcription_model(&self, model: TranscriptionModel) {
+    pub fn set_transcription_model(&self, model: TranscriptionModel) -> bool {
+        if !self.transcriber.supports_model(model) {
+            let backend = self.transcriber.backend_name();
+            self.emit_runtime_error(format!(
+                "Selected model '{}' is not supported by active backend '{}'.",
+                model.as_api_id(),
+                backend
+            ));
+            self.emit_log_message(format!(
+                "Model selection blocked (backend '{}' does not support model '{}')",
+                backend,
+                model.as_api_id()
+            ));
+            pipeline_trace::log(
+                "command",
+                format!(
+                    "SetTranscriptionModel blocked model={} backend={}",
+                    model.as_api_id(),
+                    backend
+                ),
+            );
+            return false;
+        }
+
         let mut selected_model = self
             .selected_model
             .lock()
             .expect("selected transcription model mutex poisoned");
         *selected_model = model;
+        pipeline_trace::log(
+            "command",
+            format!("SetTranscriptionModel model={}", model.as_api_id()),
+        );
+        true
     }
 
     pub fn execute(&self, commands: Vec<CoreCommand>) {
         for command in commands {
             self.execute_one(command);
         }
+    }
+
+    pub fn set_vad_silence_duration_ms(&self, vad_silence_duration_ms: u32) {
+        let mut current = self
+            .vad_silence_duration_ms
+            .lock()
+            .expect("vad silence duration mutex poisoned");
+        *current = vad_silence_duration_ms.clamp(100, 5_000);
+        pipeline_trace::log(
+            "command",
+            format!("SetVadSilenceDurationMs value={}", *current),
+        );
     }
 
     fn execute_one(&self, command: CoreCommand) {
@@ -94,18 +137,68 @@ impl CommandBus {
             }
             CoreCommand::StartTranscriber => {
                 let transcriber = Arc::clone(&self.transcriber);
+                let audio_input = Arc::clone(&self.audio_input);
                 let model = *self
                     .selected_model
                     .lock()
                     .expect("selected transcription model mutex poisoned");
-                let event_tx = self.event_tx.clone();
-                self.runtime.spawn(async move {
-                    let config = TranscriberSessionConfig::from_model(model);
+                let vad_silence_duration_ms = *self
+                    .vad_silence_duration_ms
+                    .lock()
+                    .expect("vad silence duration mutex poisoned");
+                if !transcriber.supports_model(model) {
+                    let backend = transcriber.backend_name();
+                    self.emit_runtime_error(format!(
+                        "Selected model '{}' is not supported by active backend '{}'.",
+                        model.as_api_id(),
+                        backend
+                    ));
+                    self.emit_log_message(format!(
+                        "Transcriber start blocked (backend '{}' does not support model '{}')",
+                        backend,
+                        model.as_api_id()
+                    ));
                     pipeline_trace::log(
                         "command",
-                        format!("StartTranscriber async start model={}", model.as_api_id()),
+                        format!(
+                            "StartTranscriber blocked model={} backend={}",
+                            model.as_api_id(),
+                            backend
+                        ),
+                    );
+                    self.rollback_recording_start();
+                    return;
+                }
+                let event_tx = self.event_tx.clone();
+                self.runtime.spawn(async move {
+                    let mut config = TranscriberSessionConfig::from_model(model);
+                    config.vad_silence_duration_ms = vad_silence_duration_ms;
+                    pipeline_trace::log(
+                        "command",
+                        format!(
+                            "StartTranscriber async start model={} vad_silence_ms={}",
+                            model.as_api_id(),
+                            config.vad_silence_duration_ms
+                        ),
                     );
                     if let Err(error) = transcriber.start(config).await {
+                        if let Err(stop_error) = audio_input.stop_checked() {
+                            let _ = event_tx
+                                .send(AppEvent::RuntimeError(format!(
+                                    "failed to stop audio input after transcriber start error: {stop_error}"
+                                )))
+                                .await;
+                            pipeline_trace::log(
+                                "command",
+                                format!("StartTranscriber rollback stop_audio error={stop_error}"),
+                            );
+                        } else {
+                            pipeline_trace::log(
+                                "command",
+                                "StartTranscriber rollback stop_audio ok",
+                            );
+                        }
+                        let _ = event_tx.send(AppEvent::RecordingStartRejected).await;
                         let _ = event_tx
                             .send(AppEvent::RuntimeError(format!(
                                 "failed to start transcriber: {error}"
@@ -240,6 +333,22 @@ impl CommandBus {
 
     fn emit_runtime_error(&self, message: String) {
         let _ = self.event_tx.try_send(AppEvent::RuntimeError(message));
+    }
+
+    fn rollback_recording_start(&self) {
+        if let Err(error) = self.audio_input.stop_checked() {
+            self.emit_runtime_error(format!(
+                "failed to stop audio input after start rejection: {error}"
+            ));
+            pipeline_trace::log(
+                "command",
+                format!("rollback_recording_start.stop_audio error={error}"),
+            );
+        } else {
+            pipeline_trace::log("command", "rollback_recording_start.stop_audio ok");
+        }
+
+        let _ = self.event_tx.try_send(AppEvent::RecordingStartRejected);
     }
 
     fn emit_log_message(&self, message: impl Into<String>) {

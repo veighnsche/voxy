@@ -6,6 +6,7 @@ pub enum ClientEvent {
         model: String,
         input_audio_format: String,
         turn_detection: String,
+        turn_detection_silence_duration_ms: u32,
     },
     InputAudioBufferAppend {
         audio: String,
@@ -21,6 +22,7 @@ impl ClientEvent {
                 model,
                 input_audio_format,
                 turn_detection,
+                turn_detection_silence_duration_ms,
             } => json!({
                 "type": "transcription_session.update",
                 "session": {
@@ -29,7 +31,8 @@ impl ClientEvent {
                         "model": model
                     },
                     "turn_detection": {
-                        "type": turn_detection
+                        "type": turn_detection,
+                        "silence_duration_ms": turn_detection_silence_duration_ms
                     }
                 }
             }),

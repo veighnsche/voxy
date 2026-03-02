@@ -22,11 +22,13 @@ pub struct DummyStreamingTranscriber {
     worker: Mutex<WorkerState>,
 }
 
+const UPLINK_BUFFER_CAPACITY: usize = 256;
+
 #[derive(Debug, Default)]
 struct WorkerState {
     stop_tx: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
-    uplink_tx: Option<mpsc::UnboundedSender<TranscriberInput>>,
+    uplink_tx: Option<mpsc::Sender<TranscriberInput>>,
 }
 
 impl DummyStreamingTranscriber {
@@ -77,7 +79,7 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
         );
 
         let (stop_tx, mut stop_rx) = oneshot::channel();
-        let (uplink_tx, mut uplink_rx) = mpsc::unbounded_channel();
+        let (uplink_tx, mut uplink_rx) = mpsc::channel(UPLINK_BUFFER_CAPACITY);
         let tx = self.tx.clone();
         let downlink_tx = self.downlink_tx.clone();
         let audio_source = self.audio_source.clone();
@@ -173,6 +175,7 @@ impl StreamingTranscriber for DummyStreamingTranscriber {
 
         uplink_tx
             .send(input)
+            .await
             .map_err(|_| TranscriberContractError::UplinkClosed)
     }
 

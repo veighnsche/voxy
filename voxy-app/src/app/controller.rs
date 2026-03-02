@@ -3,14 +3,13 @@ use std::{
     env,
     rc::Rc,
     sync::OnceLock,
-    sync::{mpsc as std_mpsc, Arc, Mutex},
-    time::{Duration, Instant},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use gtk4::{gdk, prelude::*, Application, EventControllerKey, PropagationPhase};
 use tokio::{runtime::Runtime, sync::mpsc};
 use voxy_core::{AppEvent, AppState, CoreModel};
-use voxy_models::ModelLifecycle;
 use voxy_stt::TranscriptionModel;
 
 use crate::{
@@ -25,12 +24,13 @@ use crate::{
     wiring::{self, command_bus::CommandBus, transcriber::AppTranscriber},
 };
 
-const RUNTIME_ERROR_CLEAR_DELAY: Duration = Duration::from_secs(2);
 const INPUT_LEVEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_RECORDING_SECONDS_ENV: &str = "VOXY_MAX_RECORDING_SECONDS";
 const DEFAULT_MAX_RECORDING_SECONDS: u64 = 30 * 60;
 const SILENCE_AUTO_STOP_SECONDS_ENV: &str = "VOXY_SILENCE_AUTO_STOP_SECONDS";
 const DEFAULT_SILENCE_AUTO_STOP_SECONDS: u64 = 10;
+const VAD_SILENCE_MS_ENV: &str = "VOXY_STT_VAD_SILENCE_MS";
+const DEFAULT_VAD_SILENCE_MS: u32 = 1_600;
 const SILENCE_GATE_RELEASE_HYSTERESIS: f32 = 0.05;
 const SILENCE_RESET_DEBOUNCE: Duration = Duration::from_millis(300);
 const GATE_THRESHOLD_SAVE_EPSILON: f32 = 0.0005;
@@ -74,6 +74,26 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         }
     };
     model.borrow_mut().ui_prefs.silence_auto_stop_seconds = silence_timeout;
+    let initial_vad_silence_ms = initial_vad_silence_ms();
+    let vad_silence_ms = match settings_store::load_vad_silence_ms() {
+        Ok(Some(value)) => {
+            let clamped = value.clamp(100, 5_000);
+            diagnostics::pipeline_trace::log(
+                "settings",
+                format!("loaded vad_silence_ms={clamped} from persisted settings"),
+            );
+            clamped
+        }
+        Ok(None) => initial_vad_silence_ms,
+        Err(error) => {
+            diagnostics::pipeline_trace::log(
+                "settings",
+                format!("load vad_silence_ms failed: {error}"),
+            );
+            initial_vad_silence_ms
+        }
+    };
+    model.borrow_mut().ui_prefs.vad_silence_duration_ms = vad_silence_ms;
     let default_gate_threshold =
         crate::ui::atoms::input_level_meter::gate_threshold(&widgets.input_level_meter);
     let gate_threshold = match settings_store::load_silence_gate_threshold() {
@@ -99,8 +119,6 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         gate_threshold,
     );
     let applying_text_update = Rc::new(Cell::new(false));
-    let model_lifecycle = Arc::new(ModelLifecycle::from_env());
-
     let wiring::channels::AppChannels { event_tx, event_rx } =
         wiring::channels::build_event_channels();
     let event_rx = Rc::new(RefCell::new(event_rx));
@@ -165,6 +183,7 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
     });
 
     let selected_model = Arc::new(Mutex::new(TranscriptionModel::default()));
+    let vad_silence_duration_ms = Arc::new(Mutex::new(vad_silence_ms));
 
     let command_bus = CommandBus::new(
         event_tx.clone(),
@@ -175,16 +194,13 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         app.clone(),
         layer_shell_backend.as_ref().clone(),
         Arc::clone(&selected_model),
+        Arc::clone(&vad_silence_duration_ms),
     );
-
-    sync_model_lifecycle_items(&widgets, Arc::clone(&model_lifecycle), event_tx.clone());
 
     wire_ui_signals(
         widgets.clone(),
         Rc::clone(&model),
         Rc::clone(&applying_text_update),
-        Arc::clone(&runtime),
-        Arc::clone(&model_lifecycle),
         event_tx.clone(),
         command_bus.clone(),
     );
@@ -195,7 +211,6 @@ fn activate(app: &Application, runtime: Arc<Runtime>) {
         Rc::clone(&applying_text_update),
         Rc::clone(&layer_shell_backend),
         event_rx,
-        event_tx.clone(),
         command_bus,
     );
 
@@ -229,16 +244,9 @@ fn wire_ui_signals(
     widgets: Widgets,
     model: Rc<RefCell<CoreModel>>,
     applying_text_update: Rc<Cell<bool>>,
-    runtime: Arc<Runtime>,
-    model_lifecycle: Arc<ModelLifecycle>,
     event_tx: mpsc::Sender<AppEvent>,
     command_bus: CommandBus,
 ) {
-    enum ModelActionUpdate {
-        Progress(f32),
-        Done(Result<voxy_models::InstallState, String>),
-    }
-
     {
         let event_tx = event_tx.clone();
         widgets.mic_button.connect_clicked(move |_| {
@@ -271,30 +279,18 @@ fn wire_ui_signals(
 
     {
         let command_bus = command_bus.clone();
-        let last_valid_model_id = Rc::new(RefCell::new(
-            TranscriptionModel::default().as_api_id().to_owned(),
-        ));
-        let last_valid_model_id_for_handler = Rc::clone(&last_valid_model_id);
         widgets.model_dropdown.connect_changed(move |dropdown| {
             let Some(model_id) = dropdown.active_id() else {
                 return;
             };
-            if crate::ui::atoms::model_dropdown::is_group_row_id(model_id.as_str()) {
-                let fallback_id = last_valid_model_id_for_handler.borrow().clone();
-                if model_id.as_str() != fallback_id {
-                    dropdown.set_active_id(Some(&fallback_id));
-                }
-                return;
-            }
             let Some(model) = TranscriptionModel::from_api_id(model_id.as_str()) else {
                 return;
             };
-            *last_valid_model_id_for_handler.borrow_mut() = model.as_api_id().to_owned();
             diagnostics::pipeline_trace::log(
                 "ui",
                 format!("model_dropdown.changed -> {}", model.as_api_id()),
             );
-            command_bus.set_transcription_model(model);
+            let _ = command_bus.set_transcription_model(model);
         });
     }
 
@@ -306,6 +302,31 @@ fn wire_ui_signals(
                 "settings_button.clicked -> AppEvent::SettingsToggled",
             );
             let _ = event_tx.try_send(AppEvent::SettingsToggled);
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        let model = Rc::clone(&model);
+        let window = widgets.window.clone();
+        widgets.error_copy_button.connect_clicked(move |_| {
+            let report = {
+                let snapshot = model.borrow();
+                let message =
+                    active_error_message(&snapshot).unwrap_or_else(|| "unknown".to_owned());
+                build_error_report(&snapshot, &message)
+            };
+            crate::app::behavior::system::clipboard::copy_text_to_clipboard(&window, &report);
+            let _ = event_tx.try_send(AppEvent::LogMessage(
+                "Error report copied to clipboard".to_owned(),
+            ));
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        widgets.error_dismiss_button.connect_clicked(move |_| {
+            let _ = event_tx.try_send(AppEvent::ErrorCleared);
         });
     }
 
@@ -326,125 +347,21 @@ fn wire_ui_signals(
             });
     }
 
-    for control in widgets.settings_pane.model_lifecycle_controls.clone() {
+    {
         let event_tx = event_tx.clone();
-        let runtime = Arc::clone(&runtime);
-        let model_lifecycle = Arc::clone(&model_lifecycle);
-        let managed_model = control.model;
-        let item = control.item.clone();
-        let action_button = item.action_button.clone();
-        action_button.connect_clicked(move |_| {
-            if item.is_busy() {
-                return;
-            }
-            item.popdown();
-            item.set_busy(true);
-            diagnostics::pipeline_trace::log(
-                "ui",
-                format!("settings.models.action.start -> {}", managed_model.id()),
-            );
-
-            let (update_tx, update_rx) = std_mpsc::channel::<ModelActionUpdate>();
-            let model_lifecycle_for_worker = Arc::clone(&model_lifecycle);
-            runtime.spawn(async move {
-                let update_tx_for_done = update_tx.clone();
-                let result = match tokio::task::spawn_blocking(move || {
-                    let update_tx_for_progress = update_tx.clone();
-                    model_lifecycle_for_worker.perform_primary_action_with_progress(
-                        managed_model,
-                        move |fraction| {
-                            let _ = update_tx_for_progress
-                                .send(ModelActionUpdate::Progress(fraction.clamp(0.0, 1.0)));
-                        },
-                    )
-                })
-                .await
-                {
-                    Ok(inner) => inner.map_err(|error| error.to_string()),
-                    Err(error) => Err(format!("model lifecycle worker failed: {error}")),
-                };
-                let _ = update_tx_for_done.send(ModelActionUpdate::Done(result));
+        widgets
+            .settings_pane
+            .vad_silence_ms
+            .connect_value_changed(move |spin| {
+                let vad_silence_ms = spin.value().round().clamp(100.0, 5_000.0) as u32;
+                diagnostics::pipeline_trace::log(
+                    "ui",
+                    format!(
+                        "settings.vad_silence.changed -> AppEvent::VadSilenceDurationMsChanged({vad_silence_ms})"
+                    ),
+                );
+                let _ = event_tx.try_send(AppEvent::VadSilenceDurationMsChanged(vad_silence_ms));
             });
-
-            let item_for_poll = item.clone();
-            let model_lifecycle_for_poll = Arc::clone(&model_lifecycle);
-            let event_tx_for_poll = event_tx.clone();
-            gtk4::glib::timeout_add_local(Duration::from_millis(60), move || loop {
-                match update_rx.try_recv() {
-                    Ok(ModelActionUpdate::Progress(fraction)) => {
-                        item_for_poll.set_progress(Some(fraction));
-                    }
-                    Ok(ModelActionUpdate::Done(Ok(next_state))) => {
-                        item_for_poll.set_state(next_state);
-                        item_for_poll.set_busy(false);
-                        let storage_hint = model_lifecycle_for_poll
-                            .root_path()
-                            .map(|path| path.display().to_string())
-                            .unwrap_or_else(|| "<unavailable>".to_owned());
-                        diagnostics::pipeline_trace::log(
-                            "ui",
-                            format!(
-                                "settings.models.action.done -> {} {:?}",
-                                managed_model.id(),
-                                next_state
-                            ),
-                        );
-                        let message = match next_state {
-                            voxy_models::InstallState::Downloaded => {
-                                format!(
-                                    "Downloaded: {} (saved in {})",
-                                    managed_model.title(),
-                                    storage_hint
-                                )
-                            }
-                            voxy_models::InstallState::NotDownloaded => {
-                                format!(
-                                    "Removed: {} (saved in {})",
-                                    managed_model.title(),
-                                    storage_hint
-                                )
-                            }
-                        };
-                        let _ = event_tx_for_poll.try_send(AppEvent::LogMessage(message));
-                        return gtk4::glib::ControlFlow::Break;
-                    }
-                    Ok(ModelActionUpdate::Done(Err(error))) => {
-                        if let Ok(state) = model_lifecycle_for_poll.install_state(managed_model) {
-                            item_for_poll.set_state(state);
-                        }
-                        item_for_poll.set_busy(false);
-                        diagnostics::pipeline_trace::log(
-                            "ui",
-                            format!(
-                                "settings.models.action.error -> {} {}",
-                                managed_model.id(),
-                                error
-                            ),
-                        );
-                        let _ = event_tx_for_poll.try_send(AppEvent::RuntimeError(format!(
-                            "Model lifecycle failed for {}: {}",
-                            managed_model.id(),
-                            error
-                        )));
-                        return gtk4::glib::ControlFlow::Break;
-                    }
-                    Err(std_mpsc::TryRecvError::Empty) => {
-                        return gtk4::glib::ControlFlow::Continue;
-                    }
-                    Err(std_mpsc::TryRecvError::Disconnected) => {
-                        if let Ok(state) = model_lifecycle_for_poll.install_state(managed_model) {
-                            item_for_poll.set_state(state);
-                        }
-                        item_for_poll.set_busy(false);
-                        let _ = event_tx_for_poll.try_send(AppEvent::RuntimeError(format!(
-                            "Model lifecycle worker disconnected for {}",
-                            managed_model.id()
-                        )));
-                        return gtk4::glib::ControlFlow::Break;
-                    }
-                }
-            });
-        });
     }
 
     {
@@ -502,33 +419,55 @@ fn wire_ui_signals(
     }
 }
 
-fn sync_model_lifecycle_items(
-    widgets: &Widgets,
-    model_lifecycle: Arc<ModelLifecycle>,
-    event_tx: mpsc::Sender<AppEvent>,
-) {
-    for control in widgets.settings_pane.model_lifecycle_controls.clone() {
-        match model_lifecycle.install_state(control.model) {
-            Ok(state) => {
-                control.item.set_state(state);
-                diagnostics::pipeline_trace::log(
-                    "settings",
-                    format!("model.install_state {} {:?}", control.model.id(), state),
-                );
-            }
-            Err(error) => {
-                diagnostics::pipeline_trace::log(
-                    "settings",
-                    format!("model.install_state.error {} {}", control.model.id(), error),
-                );
-                let _ = event_tx.try_send(AppEvent::RuntimeError(format!(
-                    "Failed to load model state for {}: {}",
-                    control.model.id(),
-                    error
-                )));
-            }
-        }
+fn active_error_message(model: &CoreModel) -> Option<String> {
+    if let Some(message) = model.runtime_error.clone() {
+        return Some(message);
     }
+
+    match &model.app_state {
+        AppState::Error(message) => Some(message.clone()),
+        _ => None,
+    }
+}
+
+fn build_error_report(model: &CoreModel, error_message: &str) -> String {
+    let unix_timestamp_s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or_default();
+    format!(
+        "VOXY ERROR REPORT\n\
+timestamp_unix_utc={unix_timestamp_s}\n\
+platform_os={}\n\
+platform_arch={}\n\
+app_state={:?}\n\
+settings_open={}\n\
+silence_timeout_seconds={}\n\
+vad_silence_ms={}\n\
+window_pos=({}, {})\n\
+window_size=({} x {})\n\
+confirmed_text_len={}\n\
+live_segment_len={}\n\
+full_text_len={}\n\
+log_line={}\n\
+\n\
+error_message:\n{}\n",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        model.app_state,
+        model.ui_prefs.settings_open,
+        model.ui_prefs.silence_auto_stop_seconds,
+        model.ui_prefs.vad_silence_duration_ms,
+        model.ui_prefs.window_left,
+        model.ui_prefs.window_top,
+        model.ui_prefs.window_width,
+        model.ui_prefs.window_height,
+        model.buffer.confirmed_text.len(),
+        model.buffer.live_segment.len(),
+        model.buffer.full_text().len(),
+        model.log_line,
+        error_message
+    )
 }
 
 fn start_event_loop(
@@ -537,11 +476,9 @@ fn start_event_loop(
     applying_text_update: Rc<Cell<bool>>,
     layer_shell_backend: Rc<LayerShellBackend>,
     event_rx: Rc<RefCell<mpsc::Receiver<AppEvent>>>,
-    event_tx: mpsc::Sender<AppEvent>,
     command_bus: CommandBus,
 ) {
     let model_for_events = Rc::clone(&model);
-    let event_tx_for_errors = event_tx.clone();
     let command_bus_for_events = command_bus.clone();
 
     let widgets_for_render = widgets.clone();
@@ -552,11 +489,11 @@ fn start_event_loop(
     wiring::event_loop::start(
         event_rx,
         move |event| {
-            let should_clear_runtime_error = matches!(&event, AppEvent::RuntimeError(_));
             diagnostics::pipeline_trace::log("event", format!("received={event:?}"));
 
             let before_silence_timeout =
                 model_for_events.borrow().ui_prefs.silence_auto_stop_seconds;
+            let before_vad_silence_ms = model_for_events.borrow().ui_prefs.vad_silence_duration_ms;
             let commands = model_for_events.borrow_mut().reduce(event);
             diagnostics::pipeline_trace::log("event", format!("commands={commands:?}"));
             command_bus_for_events.execute(commands);
@@ -577,6 +514,20 @@ fn start_event_loop(
                     ),
                 }
             }
+            let after_vad_silence_ms = model_for_events.borrow().ui_prefs.vad_silence_duration_ms;
+            if after_vad_silence_ms != before_vad_silence_ms {
+                command_bus_for_events.set_vad_silence_duration_ms(after_vad_silence_ms);
+                match settings_store::save_vad_silence_ms(after_vad_silence_ms) {
+                    Ok(()) => diagnostics::pipeline_trace::log(
+                        "settings",
+                        format!("saved vad_silence_ms={after_vad_silence_ms}"),
+                    ),
+                    Err(error) => diagnostics::pipeline_trace::log(
+                        "settings",
+                        format!("failed to save vad_silence_ms={after_vad_silence_ms}: {error}"),
+                    ),
+                }
+            }
 
             {
                 let snapshot = model_for_events.borrow();
@@ -592,10 +543,6 @@ fn start_event_loop(
                     ),
                 );
             }
-
-            if should_clear_runtime_error {
-                schedule_runtime_error_clear(event_tx_for_errors.clone());
-            }
         },
         move || {
             render_ui(
@@ -606,13 +553,6 @@ fn start_event_loop(
             );
         },
     );
-}
-
-fn schedule_runtime_error_clear(event_tx: mpsc::Sender<AppEvent>) {
-    gtk4::glib::timeout_add_local(RUNTIME_ERROR_CLEAR_DELAY, move || {
-        let _ = event_tx.try_send(AppEvent::ErrorCleared);
-        gtk4::glib::ControlFlow::Break
-    });
 }
 
 fn start_input_level_meter_loop(
@@ -784,10 +724,8 @@ fn start_input_level_meter_loop(
 fn max_recording_duration() -> Option<Duration> {
     static MAX_RECORDING_SECONDS: OnceLock<u64> = OnceLock::new();
     let seconds = *MAX_RECORDING_SECONDS.get_or_init(|| {
-        env::var(MAX_RECORDING_SECONDS_ENV)
-            .ok()
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .unwrap_or(DEFAULT_MAX_RECORDING_SECONDS)
+        let raw = env::var(MAX_RECORDING_SECONDS_ENV).ok();
+        parse_max_recording_seconds(raw.as_deref())
     });
 
     if seconds == 0 {
@@ -800,11 +738,36 @@ fn max_recording_duration() -> Option<Duration> {
 fn initial_silence_auto_stop_seconds() -> u64 {
     static SILENCE_AUTO_STOP_SECONDS: OnceLock<u64> = OnceLock::new();
     *SILENCE_AUTO_STOP_SECONDS.get_or_init(|| {
-        env::var(SILENCE_AUTO_STOP_SECONDS_ENV)
-            .ok()
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .unwrap_or(DEFAULT_SILENCE_AUTO_STOP_SECONDS)
+        let raw = env::var(SILENCE_AUTO_STOP_SECONDS_ENV).ok();
+        parse_silence_auto_stop_seconds(raw.as_deref())
     })
+}
+
+fn initial_vad_silence_ms() -> u32 {
+    static VAD_SILENCE_MS: OnceLock<u32> = OnceLock::new();
+    *VAD_SILENCE_MS.get_or_init(|| {
+        let raw = env::var(VAD_SILENCE_MS_ENV).ok();
+        parse_vad_silence_ms(raw.as_deref())
+    })
+}
+
+fn parse_max_recording_seconds(value: Option<&str>) -> u64 {
+    value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MAX_RECORDING_SECONDS)
+}
+
+fn parse_silence_auto_stop_seconds(value: Option<&str>) -> u64 {
+    value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SILENCE_AUTO_STOP_SECONDS)
+}
+
+fn parse_vad_silence_ms(value: Option<&str>) -> u32 {
+    value
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .map(|value| value.clamp(100, 5_000))
+        .unwrap_or(DEFAULT_VAD_SILENCE_MS)
 }
 
 fn render_ui(
@@ -821,4 +784,64 @@ fn render_ui(
         model.ui_prefs.window_left,
         model.ui_prefs.window_top,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        parse_max_recording_seconds, parse_silence_auto_stop_seconds, parse_vad_silence_ms,
+        DEFAULT_MAX_RECORDING_SECONDS, DEFAULT_SILENCE_AUTO_STOP_SECONDS, DEFAULT_VAD_SILENCE_MS,
+    };
+
+    #[test]
+    fn parse_max_recording_seconds_falls_back_to_default() {
+        assert_eq!(
+            parse_max_recording_seconds(None),
+            DEFAULT_MAX_RECORDING_SECONDS
+        );
+        assert_eq!(
+            parse_max_recording_seconds(Some("not-a-number")),
+            DEFAULT_MAX_RECORDING_SECONDS
+        );
+    }
+
+    #[test]
+    fn parse_max_recording_seconds_accepts_zero_as_disable_value() {
+        assert_eq!(parse_max_recording_seconds(Some("0")), 0);
+        assert_eq!(parse_max_recording_seconds(Some("30")), 30);
+    }
+
+    #[test]
+    fn parse_silence_auto_stop_seconds_falls_back_to_default() {
+        assert_eq!(
+            parse_silence_auto_stop_seconds(None),
+            DEFAULT_SILENCE_AUTO_STOP_SECONDS
+        );
+        assert_eq!(
+            parse_silence_auto_stop_seconds(Some("bad")),
+            DEFAULT_SILENCE_AUTO_STOP_SECONDS
+        );
+    }
+
+    #[test]
+    fn parse_silence_auto_stop_seconds_accepts_numeric_value() {
+        assert_eq!(parse_silence_auto_stop_seconds(Some("7")), 7);
+        assert_eq!(parse_silence_auto_stop_seconds(Some(" 12 ")), 12);
+    }
+
+    #[test]
+    fn parse_vad_silence_ms_falls_back_to_default() {
+        assert_eq!(parse_vad_silence_ms(None), DEFAULT_VAD_SILENCE_MS);
+        assert_eq!(
+            parse_vad_silence_ms(Some("invalid")),
+            DEFAULT_VAD_SILENCE_MS
+        );
+    }
+
+    #[test]
+    fn parse_vad_silence_ms_clamps_to_supported_bounds() {
+        assert_eq!(parse_vad_silence_ms(Some("50")), 100);
+        assert_eq!(parse_vad_silence_ms(Some("1200")), 1_200);
+        assert_eq!(parse_vad_silence_ms(Some("6000")), 5_000);
+    }
 }

@@ -1,10 +1,10 @@
 pub mod close_button;
+pub mod config_item;
 pub mod copy_button;
 pub mod input_level_meter;
 pub mod log_display;
 pub mod mic_button;
 pub mod model_dropdown;
-pub mod model_lifecycle_item;
 pub mod recording_frame;
 pub mod reset_button;
 pub mod resize_handle;

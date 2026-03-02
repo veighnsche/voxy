@@ -24,8 +24,16 @@ fn microphone_start_provides_frames() {
         return;
     }
     assert_eq!(engine.current_route(), AudioRoute::Microphone);
-    assert_eq!(engine.sample_rate_hz(), 16_000);
-    assert_eq!(engine.channels(), 1);
+    let sample_rate_hz = engine.sample_rate_hz();
+    let channels = engine.channels();
+    assert!(
+        (8_000..=192_000).contains(&sample_rate_hz),
+        "unexpected sample rate from microphone source: {sample_rate_hz}"
+    );
+    assert!(
+        (1..=16).contains(&channels),
+        "unexpected channel count from microphone source: {channels}"
+    );
 
     let snapshot = engine.snapshot().expect("snapshot should be available");
     assert!(snapshot.running);

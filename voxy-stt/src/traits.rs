@@ -10,6 +10,7 @@ pub struct TranscriberSessionConfig {
     pub model: TranscriptionModel,
     pub sample_rate_hz: u32,
     pub channels: u16,
+    pub vad_silence_duration_ms: u32,
 }
 
 impl TranscriberSessionConfig {
@@ -18,6 +19,7 @@ impl TranscriberSessionConfig {
             model,
             sample_rate_hz: 16_000,
             channels: 1,
+            vad_silence_duration_ms: 1_600,
         }
     }
 }
