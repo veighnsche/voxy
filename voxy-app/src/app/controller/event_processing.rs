@@ -9,7 +9,7 @@ use voxy_core::{AppEvent, CoreModel};
 use crate::{
     app::behavior::surface::layer_shell::LayerShellBackend,
     diagnostics,
-    ui::Widgets,
+    ui::pages::voxy_window_page::Widgets,
     wiring::{self, command_bus::CommandBus},
 };
 

@@ -12,7 +12,7 @@ use std::{
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error, Frame as Mp3Frame};
 
 use crate::{
-    adapters::cpal::CpalFrameSource,
+    adapters::cpal::source::CpalFrameSource,
     engine::session::{SessionSnapshot, SessionState},
     trace, AudioError, AudioFrameSource, AudioInput, AudioRoute, PcmFrame,
 };

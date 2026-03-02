@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use voxy_core::{AppEvent, TranscriptionModelId};
-use voxy_stt::{StreamingTranscriber, TranscriberSessionConfig, TranscriptionModel};
+use voxy_stt::{StreamingTranscriber, TranscriberSessionConfig};
 
 use crate::diagnostics::pipeline_trace;
 
@@ -15,24 +15,23 @@ impl CommandBus {
     ) {
         let transcriber = Arc::clone(&self.transcriber);
         let audio_input = Arc::clone(&self.audio_input);
-        let stt_model = to_stt_model(model);
-        if !transcriber.supports_model(stt_model) {
+        if !transcriber.supports_model(model) {
             let backend = transcriber.backend_name();
             self.emit_runtime_error(format!(
                 "Selected model '{}' is not supported by active backend '{}'.",
-                stt_model.as_api_id(),
+                model.as_api_id(),
                 backend
             ));
             self.emit_log_message(format!(
                 "Transcriber start blocked (backend '{}' does not support model '{}')",
                 backend,
-                stt_model.as_api_id()
+                model.as_api_id()
             ));
             pipeline_trace::log(
                 "command",
                 format!(
                     "StartTranscriber blocked model={} backend={}",
-                    stt_model.as_api_id(),
+                    model.as_api_id(),
                     backend
                 ),
             );
@@ -41,13 +40,13 @@ impl CommandBus {
         }
         let event_tx = self.event_tx.clone();
         self.runtime.spawn(async move {
-            let mut config = TranscriberSessionConfig::from_model(stt_model);
+            let mut config = TranscriberSessionConfig::from_model(model);
             config.vad_silence_duration_ms = vad_silence_duration_ms;
             pipeline_trace::log(
                 "command",
                 format!(
                     "StartTranscriber async start model={} vad_silence_ms={}",
-                    stt_model.as_api_id(),
+                    model.as_api_id(),
                     config.vad_silence_duration_ms
                 ),
             );
@@ -76,7 +75,7 @@ impl CommandBus {
                 pipeline_trace::log("command", "StartTranscriber started");
             }
         });
-        self.emit_log_message(format!("Transcriber started ({})", stt_model.as_api_id()));
+        self.emit_log_message(format!("Transcriber started ({})", model.as_api_id()));
     }
 
     pub(super) fn handle_stop_transcriber(&self) {
@@ -124,12 +123,5 @@ impl CommandBus {
             pipeline_trace::log("command", format!("EmitEvent send {event:?}"));
             let _ = event_tx.send(event).await;
         });
-    }
-}
-
-fn to_stt_model(model: TranscriptionModelId) -> TranscriptionModel {
-    match model {
-        TranscriptionModelId::Gpt4oMiniTranscribe => TranscriptionModel::Gpt4oMiniTranscribe,
-        TranscriptionModelId::Gpt4oTranscribe => TranscriptionModel::Gpt4oTranscribe,
     }
 }

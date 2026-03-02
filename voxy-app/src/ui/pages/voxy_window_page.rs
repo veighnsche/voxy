@@ -5,7 +5,7 @@ use gtk4::{
     Stack, TextBuffer,
 };
 
-use crate::ui::{molecules, organisms, templates, ViewModel};
+use crate::ui::{molecules, organisms, templates, view_model::ViewModel};
 
 #[derive(Clone)]
 pub struct Widgets {

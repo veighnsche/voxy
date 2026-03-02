@@ -8,4 +8,3 @@ Audio input abstraction and adapter engine for Voxy.
 - `InputEngine` route/session orchestrator
 - `AudioRoute` (microphone)
 - real `CpalFrameSource` microphone capture path
-- `NoopAudioInput` compatibility adapter

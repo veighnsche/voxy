@@ -5,5 +5,5 @@ mod ui;
 mod wiring;
 
 fn main() {
-    app::run();
+    app::controller::run();
 }

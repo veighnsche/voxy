@@ -2,19 +2,18 @@ use std::fmt;
 
 use tokio::sync::broadcast;
 use voxy_audio::PcmFrame;
-
-use crate::TranscriptionModel;
+use voxy_core::TranscriptionModelId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscriberSessionConfig {
-    pub model: TranscriptionModel,
+    pub model: TranscriptionModelId,
     pub sample_rate_hz: u32,
     pub channels: u16,
     pub vad_silence_duration_ms: u32,
 }
 
 impl TranscriberSessionConfig {
-    pub fn from_model(model: TranscriptionModel) -> Self {
+    pub fn from_model(model: TranscriptionModelId) -> Self {
         Self {
             model,
             sample_rate_hz: 16_000,

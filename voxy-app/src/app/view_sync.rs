@@ -5,7 +5,7 @@ use std::{
 
 use voxy_core::{AppState, CoreModel};
 
-use crate::ui::{self, ViewModel, Widgets};
+use crate::ui::{pages::voxy_window_page::Widgets, view_model::ViewModel};
 
 pub fn render(
     widgets: &Widgets,
@@ -15,7 +15,7 @@ pub fn render(
     let model = model.borrow();
 
     let view_model = build_view_model(&model);
-    ui::render(widgets, &view_model, applying_text_update);
+    crate::ui::pages::voxy_window_page::render(widgets, &view_model, applying_text_update);
 }
 
 pub fn build_view_model(model: &CoreModel) -> ViewModel {

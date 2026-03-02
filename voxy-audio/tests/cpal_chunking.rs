@@ -1,4 +1,4 @@
-use voxy_audio::adapters::cpal::CaptureBuffer;
+use voxy_audio::adapters::cpal::state::CaptureBuffer;
 
 #[test]
 fn capture_buffer_outputs_20ms_frames_for_16k_mono() {

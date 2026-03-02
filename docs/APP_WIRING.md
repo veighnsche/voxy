@@ -6,9 +6,10 @@ This document describes non-audio wiring inside `voxy-app`.
 - `voxy-app/src/app/`
   - `behavior/`: UI-shell behavior primitives (GTK/window side effects)
     - `drag/`
-      - `gesture.rs`: installs drag controller and emits direct position updates
+      - `gesture/`: drag event wiring, math helpers, and guard policy
       - `hit_test.rs`: blocks drag start over interactive widgets
-      - `session.rs`: drag state primitive (active + base margins)
+      - `session/`: drag state primitive (active + base margins)
+      - `invariants/`: drag simulation invariants used by tests
     - `surface/`
       - `layer_shell.rs`: Wayland layer-shell setup and capability checks
       - `placement.rs`: anchored margin placement helpers
@@ -19,10 +20,10 @@ This document describes non-audio wiring inside `voxy-app`.
       - `window_visibility.rs`: show/hide helpers
     - `system/`
       - `clipboard.rs`: clipboard integration
-  - `controller.rs`: activation bootstrap and top-level orchestration
+  - `controller/`: activation bootstrap, UI signal wiring, event processing, settings sync
   - `lifecycle.rs`: app id and GTK application flags resolution
+  - `settings_store/`: persisted settings path + serde file store
   - `view_sync.rs`: convert `CoreModel` to `ViewModel` and render
-  - `error_path.rs`: explicit helper for mapping runtime failures into `AppState::Error`
 - `voxy-app/src/tray/`
   - `status_notifier.rs`: StatusNotifier (system tray) adapter
   - `menu.rs`: tray menu actions (`Show/Hide`, `Reset`, `Size +`, `Size -`, `Quit`)
@@ -31,7 +32,7 @@ This document describes non-audio wiring inside `voxy-app`.
   - `runtime.rs`: Tokio runtime construction
   - `channels.rs`: `tokio::mpsc` channel construction
   - `event_loop.rs`: GTK tick-based event drain loop
-  - `command_bus.rs`: execute `CoreCommand` side effects
+  - `command_bus/`: execute `CoreCommand` side effects by domain (audio/stt/window/app)
 - `voxy-app/src/diagnostics/`
   - `smoke_hooks.rs`: environment-driven smoke-test hooks
 - `voxy-app/src/ui/`

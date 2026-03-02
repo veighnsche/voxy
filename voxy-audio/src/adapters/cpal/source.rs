@@ -11,7 +11,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::{
     adapters::cpal::{convert, state::CaptureBuffer},
-    trace, AudioError, AudioFrameSource, AudioInput, AudioRoute, PcmFrame,
+    trace, AudioError, AudioFrameSource, PcmFrame,
 };
 
 #[derive(Clone)]
@@ -157,19 +157,6 @@ impl Drop for CpalSourceInner {
                 let _ = handle.join();
             }
         }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct CpalAudioInput;
-
-impl AudioInput for CpalAudioInput {
-    fn start(&self) {}
-
-    fn stop(&self) {}
-
-    fn current_route(&self) -> AudioRoute {
-        AudioRoute::Microphone
     }
 }
 

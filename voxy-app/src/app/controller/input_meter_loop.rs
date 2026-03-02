@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::mpsc;
 use voxy_core::{parse_max_recording_seconds, AppEvent, AppState, CoreModel, RecordingStopReason};
 
-use crate::{diagnostics, ui::Widgets};
+use crate::{diagnostics, ui::pages::voxy_window_page::Widgets};
 
 const INPUT_LEVEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_RECORDING_SECONDS_ENV: &str = "VOXY_MAX_RECORDING_SECONDS";

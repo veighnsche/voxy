@@ -16,7 +16,7 @@ use crate::{
         view_sync,
     },
     diagnostics, tray,
-    ui::{self, Widgets},
+    ui::pages::voxy_window_page::Widgets,
     wiring::{self, command_bus::CommandBus, transcriber::AppTranscriber},
 };
 
@@ -30,7 +30,7 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         return;
     }
 
-    let widgets = ui::build(app);
+    let widgets = crate::ui::pages::voxy_window_page::build(app);
     diagnostics::smoke_hooks::mark_window_created();
 
     let layer_shell_backend = Rc::new(LayerShellBackend::detect());
@@ -95,7 +95,7 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         },
     );
 
-    resize::connect_resize_handle(&widgets.window, widgets.resize_handle.upcast_ref(), {
+    resize::gesture::connect_resize_handle(&widgets.window, widgets.resize_handle.upcast_ref(), {
         let event_tx = event_tx.clone();
         move |width, height| {
             diagnostics::pipeline_trace::log(

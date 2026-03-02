@@ -2,11 +2,11 @@ use std::{env, sync::Arc};
 
 use tokio::sync::{broadcast, mpsc};
 use voxy_audio::AudioFrameSource;
-use voxy_core::AppEvent;
+use voxy_core::{AppEvent, TranscriptionModelId};
 use voxy_stt::{
     DummyStreamingTranscriber, OpenAiRealtimeTranscriber, StreamingTranscriber,
     TranscriberContractError, TranscriberInput, TranscriberOutput, TranscriberSessionConfig,
-    TranscriberStreamState, TranscriptionModel,
+    TranscriberStreamState,
 };
 
 use crate::diagnostics::pipeline_trace;
@@ -60,7 +60,7 @@ impl AppTranscriber {
         }
     }
 
-    pub fn supports_model(&self, _model: TranscriptionModel) -> bool {
+    pub fn supports_model(&self, _model: TranscriptionModelId) -> bool {
         true
     }
 }

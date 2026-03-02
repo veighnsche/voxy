@@ -1,8 +1,5 @@
 pub mod behavior;
-mod controller;
-mod error_path;
+pub(crate) mod controller;
 mod lifecycle;
 mod settings_store;
 mod view_sync;
-
-pub use controller::run;

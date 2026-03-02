@@ -11,7 +11,7 @@ use voxy_core::{
     TranscriptionModelId,
 };
 
-use crate::{diagnostics, ui::Widgets};
+use crate::{diagnostics, ui::pages::voxy_window_page::Widgets};
 
 pub(super) fn wire_ui_signals(
     widgets: Widgets,
