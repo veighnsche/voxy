@@ -3,7 +3,6 @@ members = [
     "voxy-app",
     "voxy-core",
     "voxy-stt",
-    "voxy-models",
     "voxy-audio",
     "xtask",
 ]
@@ -25,4 +24,3 @@ tokio = { version = "1.44", features = ["rt-multi-thread", "time", "sync", "macr
 voxy-audio = { path = "voxy-audio", version = "0.1.0" }
 voxy-core = { path = "voxy-core", version = "0.1.0" }
 voxy-stt = { path = "voxy-stt", version = "0.1.0" }
-voxy-models = { path = "voxy-models", version = "0.1.0" }
