@@ -48,10 +48,12 @@ This document describes non-audio wiring inside `voxy-app`.
 
 ## Guardrails
 - `ui/*` must stay render-only.
-- `app/*` may orchestrate, but should not contain domain transitions.
+- `app/*` may orchestrate, but should not contain domain transition policy.
 - `app/behavior/*` owns GTK/window side effects only; no core state transitions.
 - `wiring/*` owns async/process plumbing.
 - Domain transitions and state rules belong in `voxy-core`.
+- Input-level timer loops may sample/meter audio, but stop decisions must come from `voxy-core` policy APIs.
+- Widget controls emit raw user intent (events); persisted policy values are stored in `voxy-core::UiPrefs`.
 - Visibility state source of truth is `voxy-core::UiPrefs.visible`.
 - Visibility toggles must not rebuild/replace the window.
 - Tray callbacks dispatch `AppEvent` only; no domain logic in tray adapters.

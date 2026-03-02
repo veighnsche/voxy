@@ -51,7 +51,7 @@ Pre-alpha. The app is usable for local live transcription workflows, but APIs an
 
 - `voxy-app/`: GTK4 application shell (controller + render layer)
   - Internal split: `app/` (orchestration), `wiring/` (runtime/channels), `ui/` (render), `diagnostics/` (smoke hooks)
-- `voxy-core/`: buffer model, event model, state machine, reducer, side-effect command planning
+- `voxy-core/`: domain source of truth (buffer/event/state/reducer), transcription model ids, recording stop policy, shared config defaults/clamps/parsers
 - `voxy-stt/`: streaming transcriber abstraction + OpenAI realtime + dummy backend
 - `voxy-audio/`: audio capture engine + CPAL adapter + fixture injection path
 - `xtask/`: GUI automation tasks used by CI/local validation
