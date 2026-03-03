@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.vince.voxy</id>
+  <name>Voxy</name>
+  <summary>GTK4 desktop app for live microphone transcription</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.vince">
+    <name>Voxy Maintainers</name>
+  </developer>
+  <description>
+    <p>Voxy is a GTK4 desktop app for live microphone transcription into an editable text area.</p>
+    <p>It supports realtime OpenAI transcription streaming, configurable silence detection, and quick copy/reset workflows.</p>
+  </description>
+  <launchable type="desktop-id">com.vince.voxy.desktop</launchable>
+  <url type="homepage">https://github.com/veighnsche/voxy</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+</component>

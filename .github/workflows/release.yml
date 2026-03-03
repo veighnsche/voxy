@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            appstream \
+            desktop-file-utils \
+            pkg-config \
+            libgtk-4-dev \
+            libgraphene-1.0-dev \
+            libgtk4-layer-shell-dev \
+            libasound2-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate packaging metadata
+        run: VOXY_PACKAGING_VALIDATE_STRICT=1 ./scripts/release/validate-packaging.sh
+
+      - name: Build release binary
+        run: cargo build --release -p voxy-app
+
+      - name: Package artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp target/release/voxy-app dist/voxy-app
+          tar -C dist -czf "dist/voxy-app-${VERSION}-linux-x86_64.tar.gz" voxy-app
+          sha256sum "dist/voxy-app-${VERSION}-linux-x86_64.tar.gz" > "dist/SHA256SUMS.txt"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/voxy-app-*-linux-x86_64.tar.gz
+            dist/SHA256SUMS.txt

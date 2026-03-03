@@ -21,6 +21,8 @@ summary="Wayland-native GTK4 app for live transcription"
 description="Voxy is a Wayland-native GTK4 Rust app scaffold for live streaming speech-to-text into an editable text area."
 release="${VOXY_RPM_RELEASE:-1}"
 packager="${VOXY_RPM_PACKAGER:-Voxy Maintainers <noreply@voxy.local>}"
+desktop_src="${repo_root}/packaging/linux/${app_id}.desktop"
+metainfo_src="${repo_root}/packaging/linux/${app_id}.metainfo.xml"
 
 pkgid="$(cargo pkgid -p voxy-app)"
 version="${pkgid##*#}"
@@ -59,21 +61,10 @@ install -m 0755 "${binary_src}" "${stage_dir}/usr/bin/${binary_name}"
 install -m 0644 "${repo_root}/LICENSE" "${stage_dir}/usr/share/licenses/${package_name}/LICENSE"
 install -m 0644 "${repo_root}/assets/icons/hicolor/scalable/apps/${app_id}.svg" \
   "${stage_dir}/usr/share/icons/hicolor/scalable/apps/${app_id}.svg"
-install -m 0644 "${repo_root}/assets/metainfo/${app_id}.metainfo.xml" \
+install -m 0644 "${metainfo_src}" \
   "${stage_dir}/usr/share/metainfo/${app_id}.metainfo.xml"
-
-cat > "${stage_dir}/usr/share/applications/${app_id}.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Voxy
-Comment=Wayland-native GTK4 app for live transcription
-Exec=${binary_name}
-Icon=${app_id}
-Terminal=false
-Categories=AudioVideo;Utility;
-StartupNotify=true
-DESKTOP
+install -m 0644 "${desktop_src}" \
+  "${stage_dir}/usr/share/applications/${app_id}.desktop"
 
 cat > "${spec_path}" <<SPEC
 %global debug_package %{nil}

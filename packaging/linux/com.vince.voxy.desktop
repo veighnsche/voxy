@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Voxy
+Comment=Wayland-native GTK4 app for live transcription
+Exec=voxy-app
+Icon=com.vince.voxy
+Terminal=false
+Categories=AudioVideo;Utility;
+StartupNotify=true

@@ -20,6 +20,8 @@ installed_bin="${bin_dir}/${binary_name}"
 desktop_file="${apps_dir}/${app_id}.desktop"
 icon_file="${icons_dir}/${app_id}.svg"
 metainfo_file="${metainfo_dir}/${app_id}.metainfo.xml"
+desktop_template="${repo_root}/packaging/linux/${app_id}.desktop"
+metainfo_src="${repo_root}/packaging/linux/${app_id}.metainfo.xml"
 
 echo "Building release binary..."
 cargo build --release -p voxy-app
@@ -32,22 +34,15 @@ fi
 mkdir -p "${bin_dir}" "${apps_dir}" "${icons_dir}" "${metainfo_dir}"
 install -m 0755 "target/release/${binary_name}" "${installed_bin}"
 install -m 0644 "${repo_root}/assets/icons/hicolor/scalable/apps/${app_id}.svg" "${icon_file}"
-install -m 0644 "${repo_root}/assets/metainfo/${app_id}.metainfo.xml" "${metainfo_file}"
+install -m 0644 "${metainfo_src}" "${metainfo_file}"
 
-escaped_exec="${installed_bin// /\\ }"
+if [[ ! -f "${desktop_template}" ]]; then
+  echo "Desktop entry template not found at ${desktop_template}"
+  exit 1
+fi
 
-cat > "${desktop_file}" <<EOF
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=${app_name}
-Comment=Wayland-native GTK4 app for live transcription
-Exec=${escaped_exec}
-Icon=${app_id}
-Terminal=false
-Categories=AudioVideo;Utility;
-StartupNotify=true
-EOF
+escaped_exec_for_sed="$(printf '%s' "${installed_bin}" | sed 's/[&|]/\\&/g')"
+sed "s|^Exec=.*|Exec=${escaped_exec_for_sed}|" "${desktop_template}" > "${desktop_file}"
 
 desktop_dir=""
 if command -v xdg-user-dir >/dev/null 2>&1; then

@@ -18,8 +18,8 @@ Already present:
 
 Missing for marketplace publishing:
 - [ ] Canonical, stable application ID decision for all channels
-- [ ] Tracked desktop entry file in repo (not only generated in scripts)
-- [ ] AppStream MetaInfo file (`*.metainfo.xml`)
+- [x] Tracked desktop entry file in repo (`packaging/linux/com.vince.voxy.desktop`)
+- [x] AppStream MetaInfo file (`packaging/linux/com.vince.voxy.metainfo.xml`)
 - [ ] App icons in standard sizes (and ideally SVG)
 - [ ] Flatpak manifest + permissions review
 - [ ] AUR PKGBUILD + `.SRCINFO`
@@ -60,6 +60,7 @@ Missing for marketplace publishing:
 - [ ] Validate metadata:
   - `desktop-file-validate packaging/linux/<app-id>.desktop`
   - `appstreamcli validate packaging/linux/<app-id>.metainfo.xml`
+  - automated helper: `just validate-packaging-strict`
 
 ## 5. Flatpak + Flathub Checklist
 
