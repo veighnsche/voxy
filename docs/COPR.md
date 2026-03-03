@@ -25,7 +25,15 @@ copr-cli create \
 
 Adjust owner/project/chroots as needed.
 
-## 2. Build SRPM from a release tag
+## 2. Preflight release metadata
+
+Before building an SRPM, verify version/changelog consistency:
+
+```bash
+just release-preflight version=1.0.0-RC2
+```
+
+## 3. Build SRPM from a release tag
 
 The repo includes a maintained spec file at `packaging/rpm/voxy-app.spec`.
 
@@ -35,7 +43,7 @@ just rpm-srpm ref=v1.0.0-RC2
 
 This writes an SRPM under `target/rpm-srpm/SRPMS/`.
 
-## 3. Submit build to COPR
+## 4. Submit build to COPR
 
 ```bash
 just copr-build veighnsche/voxy v1.0.0-RC2
@@ -47,7 +55,13 @@ Equivalent manual command:
 copr-cli build veighnsche/voxy target/rpm-srpm/SRPMS/*.src.rpm
 ```
 
-## 4. Install from COPR
+To submit without waiting for completion:
+
+```bash
+VOXY_COPR_NOWAIT=1 just copr-build veighnsche/voxy v1.0.0-RC2
+```
+
+## 5. Install from COPR
 
 On a Fedora client:
 
