@@ -172,6 +172,7 @@ just gui-trace every=10
 ## Validation
 
 ```bash
+just hooks-install
 just validate
 # optional strict packaging validation:
 just validate-packaging-strict

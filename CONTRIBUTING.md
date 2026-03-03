@@ -16,6 +16,7 @@ Voxy is currently scaffold-first. Contributions should preserve strict module bo
 ## Development
 ```bash
 just doctor
+just hooks-install
 cargo fmt --all
 cargo check -p voxy-core -p voxy-audio -p voxy-stt
 cargo test -p voxy-core
@@ -27,6 +28,26 @@ To install/check GTK prerequisites:
 just deps
 just doctor
 ```
+
+## Git Hooks
+
+Install repo-managed hooks once per clone:
+
+```bash
+just hooks-install
+```
+
+Run the pre-commit checks manually:
+
+```bash
+just hooks-run
+```
+
+`just hooks-run` forces the full pre-commit gate even with no staged files.
+
+Temporary bypass options:
+- Skip hook entirely: `VOXY_SKIP_PRECOMMIT=1 git commit ...`
+- Skip tests only: `VOXY_PRECOMMIT_SKIP_TESTS=1 git commit ...`
 
 ## Pull Requests
 - Keep changes focused and reviewable.

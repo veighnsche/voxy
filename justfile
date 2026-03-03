@@ -6,6 +6,12 @@ default:
 deps:
     ./scripts/dev/install-system-deps.sh
 
+hooks-install:
+    ./scripts/dev/install-hooks.sh
+
+hooks-run:
+    VOXY_PRECOMMIT_FORCE=1 ./scripts/dev/pre-commit-checks.sh
+
 doctor:
     ./scripts/dev/doctor.sh
 
