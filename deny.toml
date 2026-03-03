@@ -5,6 +5,9 @@ all-features = true
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
+ignore = [
+  "RUSTSEC-2025-0044",
+]
 
 [licenses]
 allow = [
@@ -14,10 +17,14 @@ allow = [
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
+  "CDLA-Permissive-2.0",
   "MPL-2.0",
+  "Unlicense",
+  "Unicode-3.0",
   "Unicode-DFS-2016",
   "Zlib",
 ]
+unused-allowed-license = "allow"
 confidence-threshold = 0.8
 
 [bans]
