@@ -39,6 +39,87 @@ validate: doctor
     cargo run -p xtask -- gui visibility-smoke
     cargo run -p xtask -- gui visibility-window-guard
 
+act-ci event="push" runner="-self-hosted": doctor
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v act >/dev/null 2>&1; then
+      echo "act is required. Install it first: https://github.com/nektos/act" >&2
+      exit 1
+    fi
+
+    cache_root="${ACT_CACHE_ROOT:-$HOME/.cache/voxy-act}"
+    mkdir -p \
+      "${cache_root}/actions" \
+      "${cache_root}/cache" \
+      "${cache_root}/artifacts"
+
+    exec act "{{event}}" \
+      -W .github/workflows/ci.yml \
+      -P "ubuntu-latest={{runner}}" \
+      --reuse \
+      --pull=false \
+      --action-cache-path "${cache_root}/actions" \
+      --cache-server-path "${cache_root}/cache" \
+      --artifact-server-path "${cache_root}/artifacts"
+
+act-checks event="push" runner="-self-hosted": doctor
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v act >/dev/null 2>&1; then
+      echo "act is required. Install it first: https://github.com/nektos/act" >&2
+      exit 1
+    fi
+
+    cache_root="${ACT_CACHE_ROOT:-$HOME/.cache/voxy-act}"
+    mkdir -p \
+      "${cache_root}/actions" \
+      "${cache_root}/cache" \
+      "${cache_root}/artifacts"
+
+    exec act "{{event}}" \
+      -j checks \
+      -W .github/workflows/ci.yml \
+      -P "ubuntu-latest={{runner}}" \
+      --reuse \
+      --pull=false \
+      --action-cache-path "${cache_root}/actions" \
+      --cache-server-path "${cache_root}/cache" \
+      --artifact-server-path "${cache_root}/artifacts"
+
+act-security event="push" runner="-self-hosted": doctor
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v act >/dev/null 2>&1; then
+      echo "act is required. Install it first: https://github.com/nektos/act" >&2
+      exit 1
+    fi
+
+    cache_root="${ACT_CACHE_ROOT:-$HOME/.cache/voxy-act}"
+    mkdir -p \
+      "${cache_root}/actions" \
+      "${cache_root}/cache" \
+      "${cache_root}/artifacts"
+
+    exec act "{{event}}" \
+      -j security \
+      -W .github/workflows/ci.yml \
+      -P "ubuntu-latest={{runner}}" \
+      --reuse \
+      --pull=false \
+      --action-cache-path "${cache_root}/actions" \
+      --cache-server-path "${cache_root}/cache" \
+      --artifact-server-path "${cache_root}/artifacts"
+
+act-cache-clear:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cache_root="${ACT_CACHE_ROOT:-$HOME/.cache/voxy-act}"
+    rm -rf "${cache_root}"
+    echo "Removed act cache at ${cache_root}"
+
 validate-packaging:
     ./scripts/release/validate-packaging.sh
 
