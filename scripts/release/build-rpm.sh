@@ -26,6 +26,21 @@ metainfo_src="${repo_root}/packaging/linux/${app_id}.metainfo.xml"
 
 pkgid="$(cargo pkgid -p voxy-app)"
 version="${pkgid##*#}"
+
+to_rpm_version() {
+  local input="$1"
+  if [[ "${input}" != *-* ]]; then
+    printf '%s' "${input}"
+    return
+  fi
+
+  local base="${input%%-*}"
+  local suffix="${input#*-}"
+  suffix="${suffix//-/.}"
+  printf '%s~%s' "${base}" "${suffix}"
+}
+
+rpm_version="$(to_rpm_version "${version}")"
 arch="$(uname -m)"
 
 rpm_topdir="${repo_root}/target/rpm"
@@ -70,7 +85,7 @@ cat > "${spec_path}" <<SPEC
 %global debug_package %{nil}
 
 Name:           ${package_name}
-Version:        ${version}
+Version:        ${rpm_version}
 Release:        ${release}%{?dist}
 Summary:        ${summary}
 License:        MIT
@@ -97,7 +112,7 @@ cp -a "${stage_dir}/." "%{buildroot}/"
 /usr/share/metainfo/${app_id}.metainfo.xml
 
 %changelog
-* $(LC_ALL=C date '+%a %b %d %Y') ${packager} - ${version}-${release}
+* $(LC_ALL=C date '+%a %b %d %Y') ${packager} - ${rpm_version}-${release}
 - Automated local RPM build
 SPEC
 
@@ -107,7 +122,7 @@ rpmbuild -bb "${spec_path}" \
   --buildroot "${buildroot}" \
   >/dev/null
 
-rpm_path="$(find "${rpm_topdir}/RPMS" -type f -name "${package_name}-${version}-${release}*.${arch}.rpm" | head -n 1)"
+rpm_path="$(find "${rpm_topdir}/RPMS" -type f -name "${package_name}-${rpm_version}-${release}*.${arch}.rpm" | head -n 1)"
 if [[ -z "${rpm_path}" ]]; then
   echo "RPM build finished but package file was not found in ${rpm_topdir}/RPMS."
   exit 1
