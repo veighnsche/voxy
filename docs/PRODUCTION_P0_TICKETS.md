@@ -46,7 +46,7 @@ Prevent final transcript loss during stop and shutdown.
 - Final segment integrity is preserved across normal stop and reconnect scenarios.
 
 ### Verification
-- Deterministic payload tests cover matching completion, mismatched completion suppression, and stop-forwarding correlation behavior.
+- Deterministic payload/sequence tests cover matching completion, mismatched completion suppression, and stale-completion rejection until fresh commit-ack.
 - Remaining gap: full mocked-websocket reconnect scenario coverage.
 
 ## VOXY-P0-004: Audio Failure Surface and Bounds Safety

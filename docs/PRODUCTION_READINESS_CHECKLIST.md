@@ -9,7 +9,7 @@ Actionable P0 implementation tickets live in `docs/PRODUCTION_P0_TICKETS.md`.
 Status: **NOT production ready**.
 
 Highest current risks:
-- Final transcript behavior still needs reconnect-path evidence.
+- Reconnect-path transcript evidence is unit-level; full mocked-websocket reconnect integration is still pending.
 - Audio failure-injection coverage is incomplete for some CPAL failure classes.
 - Crash/kill durability simulation for settings persistence is still pending.
 - Release evidence remains manual (CI links, rollback drill, owner assignment).

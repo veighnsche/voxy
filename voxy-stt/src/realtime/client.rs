@@ -709,7 +709,7 @@ fn completion_matches_expected(
         Some(expected) => observed_item_id
             .map(|item_id| item_id == expected)
             .unwrap_or(false),
-        None => true,
+        None => observed_item_id.is_none(),
     }
 }
 
@@ -1137,8 +1137,8 @@ mod tests {
     use voxy_core::AppEvent;
 
     use super::{
-        completion_matches_expected, handle_server_payload, parse_realtime_url,
-        parse_source_poll_ms, reconnect_config_from_env, reconnect_decision,
+        completion_matches_expected, handle_server_payload, observe_stop_flush_progress,
+        parse_realtime_url, parse_source_poll_ms, reconnect_config_from_env, reconnect_decision,
         redact_ws_url_for_trace, should_forward_server_event_to_app,
         should_retry_tungstenite_error, ReconnectConfig, RetryDecision, DEFAULT_REALTIME_URL,
         DEFAULT_RECONNECT_BASE_MS, DEFAULT_RECONNECT_ENABLED, DEFAULT_RECONNECT_MAX_MS,
@@ -1463,10 +1463,52 @@ mod tests {
     #[test]
     fn completion_matching_respects_expected_item_id() {
         assert!(completion_matches_expected(None, None));
-        assert!(completion_matches_expected(None, Some("item-a")));
+        assert!(!completion_matches_expected(None, Some("item-a")));
         assert!(completion_matches_expected(Some("item-a"), Some("item-a")));
         assert!(!completion_matches_expected(Some("item-a"), Some("item-b")));
         assert!(!completion_matches_expected(Some("item-a"), None));
+    }
+
+    #[test]
+    fn stop_flush_progress_ignores_stale_completion_until_new_commit_ack() {
+        let mut stop_commit_pending = true;
+        let mut stop_commit_item_id = None;
+        let mut stop_completion_received = false;
+
+        observe_stop_flush_progress(
+            &ServerEvent::TranscriptionCompleted {
+                item_id: Some("item-stale".to_owned()),
+                text: Some("stale".to_owned()),
+            },
+            &mut stop_commit_pending,
+            &mut stop_commit_item_id,
+            &mut stop_completion_received,
+        );
+        assert!(!stop_completion_received);
+        assert!(stop_commit_item_id.is_none());
+
+        observe_stop_flush_progress(
+            &ServerEvent::InputAudioBufferCommitted {
+                item_id: Some("item-fresh".to_owned()),
+                previous_item_id: Some("item-stale".to_owned()),
+            },
+            &mut stop_commit_pending,
+            &mut stop_commit_item_id,
+            &mut stop_completion_received,
+        );
+        assert_eq!(stop_commit_item_id.as_deref(), Some("item-fresh"));
+        assert!(!stop_completion_received);
+
+        observe_stop_flush_progress(
+            &ServerEvent::TranscriptionCompleted {
+                item_id: Some("item-fresh".to_owned()),
+                text: Some("final".to_owned()),
+            },
+            &mut stop_commit_pending,
+            &mut stop_commit_item_id,
+            &mut stop_completion_received,
+        );
+        assert!(stop_completion_received);
     }
 
     #[test]
