@@ -17,9 +17,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            appstream \
+            desktop-file-utils \
             pkg-config \
             libgtk-4-dev \
-            libgraphene-1.0-dev
+            libgraphene-1.0-dev \
+            libgtk4-layer-shell-dev \
+            libasound2-dev \
+            xvfb
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -32,14 +37,45 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
-      - name: Check core crates
-        run: cargo check -p voxy-core -p voxy-audio -p voxy-stt
+      - name: Check workspace
+        run: cargo check --workspace
 
-      - name: Test core logic
-        run: cargo test -p voxy-core
+      - name: Test workspace crates
+        run: cargo test -p voxy-core -p voxy-audio -p voxy-stt -p voxy-app
 
-      - name: Clippy core crates
-        run: cargo clippy -p voxy-core -p voxy-audio -p voxy-stt --all-targets -- -D warnings
+      - name: Clippy workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Check GTK app
-        run: cargo check -p voxy-app
+      - name: Packaging metadata validation
+        run: just validate-packaging-strict
+
+      - name: GUI smoke and lifecycle flows
+        run: |
+          xvfb-run -a cargo run -p xtask -- gui smoke
+          xvfb-run -a cargo run -p xtask -- gui lifecycle
+          xvfb-run -a cargo run -p xtask -- gui quit-fallback
+          xvfb-run -a cargo run -p xtask -- gui reset-flow
+          xvfb-run -a cargo run -p xtask -- gui stt-fixture-smoke
+          xvfb-run -a cargo run -p xtask -- gui visibility-toggle-flow
+          xvfb-run -a cargo run -p xtask -- gui visibility-smoke
+          xvfb-run -a cargo run -p xtask -- gui visibility-window-guard
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit and cargo-deny
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
+
+      - name: Dependency vulnerability scan
+        run: cargo audit
+
+      - name: Dependency policy scan
+        run: cargo deny check

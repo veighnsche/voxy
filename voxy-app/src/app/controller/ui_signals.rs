@@ -11,19 +11,20 @@ use voxy_core::{
     TranscriptionModelId,
 };
 
-use crate::{diagnostics, ui::pages::voxy_window_page::Widgets};
+use crate::{diagnostics, ui::pages::voxy_window_page::Widgets, wiring::event_emit};
 
 pub(super) fn wire_ui_signals(
     widgets: Widgets,
     model: Rc<RefCell<CoreModel>>,
     applying_text_update: Rc<Cell<bool>>,
     event_tx: mpsc::Sender<AppEvent>,
+    tray_available: bool,
 ) {
     {
         let event_tx = event_tx.clone();
         widgets.mic_button.connect_clicked(move |_| {
             diagnostics::pipeline_trace::log("ui", "mic_button.clicked -> AppEvent::MicToggled");
-            let _ = event_tx.try_send(AppEvent::MicToggled);
+            event_emit::emit_critical(&event_tx, AppEvent::MicToggled, "ui.mic_button");
         });
     }
 
@@ -34,7 +35,7 @@ pub(super) fn wire_ui_signals(
                 "ui",
                 "reset_button.clicked -> AppEvent::ResetRequested",
             );
-            let _ = event_tx.try_send(AppEvent::ResetRequested);
+            event_emit::emit_lossy(&event_tx, AppEvent::ResetRequested, "ui.reset_button");
         });
     }
 
@@ -45,7 +46,7 @@ pub(super) fn wire_ui_signals(
                 "ui",
                 "copy_button.clicked -> AppEvent::CopyRequested",
             );
-            let _ = event_tx.try_send(AppEvent::CopyRequested);
+            event_emit::emit_lossy(&event_tx, AppEvent::CopyRequested, "ui.copy_button");
         });
     }
 
@@ -62,7 +63,11 @@ pub(super) fn wire_ui_signals(
                 "ui",
                 format!("model_dropdown.changed -> {}", model.as_api_id()),
             );
-            let _ = event_tx.try_send(AppEvent::TranscriptionModelChanged(model));
+            event_emit::emit_lossy(
+                &event_tx,
+                AppEvent::TranscriptionModelChanged(model),
+                "ui.model_changed",
+            );
         });
     }
 
@@ -73,7 +78,7 @@ pub(super) fn wire_ui_signals(
                 "ui",
                 "settings_button.clicked -> AppEvent::SettingsToggled",
             );
-            let _ = event_tx.try_send(AppEvent::SettingsToggled);
+            event_emit::emit_lossy(&event_tx, AppEvent::SettingsToggled, "ui.settings_button");
         });
     }
 
@@ -84,21 +89,22 @@ pub(super) fn wire_ui_signals(
         widgets.error_copy_button.connect_clicked(move |_| {
             let report = {
                 let snapshot = model.borrow();
-                let message =
-                    active_error_message(&snapshot).unwrap_or_else(|| "unknown".to_owned());
-                build_error_report(&snapshot, &message)
+                let message = active_error_message(&snapshot).unwrap_or("unknown");
+                build_error_report(&snapshot, message)
             };
             crate::app::behavior::system::clipboard::copy_text_to_clipboard(&window, &report);
-            let _ = event_tx.try_send(AppEvent::LogMessage(
-                "Error report copied to clipboard".to_owned(),
-            ));
+            event_emit::emit_lossy(
+                &event_tx,
+                AppEvent::LogMessage("Error report copied to clipboard".to_owned()),
+                "ui.error_copy_button",
+            );
         });
     }
 
     {
         let event_tx = event_tx.clone();
         widgets.error_dismiss_button.connect_clicked(move |_| {
-            let _ = event_tx.try_send(AppEvent::ErrorCleared);
+            event_emit::emit_lossy(&event_tx, AppEvent::ErrorCleared, "ui.error_dismiss_button");
         });
     }
 
@@ -115,7 +121,11 @@ pub(super) fn wire_ui_signals(
                         "settings.timeout.changed -> AppEvent::SilenceAutoStopSecondsChanged({seconds})"
                     ),
                 );
-                let _ = event_tx.try_send(AppEvent::SilenceAutoStopSecondsChanged(seconds));
+                event_emit::emit_lossy(
+                    &event_tx,
+                    AppEvent::SilenceAutoStopSecondsChanged(seconds),
+                    "ui.silence_timeout_changed",
+                );
             });
     }
 
@@ -133,7 +143,11 @@ pub(super) fn wire_ui_signals(
                         "settings.vad_silence.changed -> AppEvent::VadSilenceDurationMsChanged({vad_silence_ms})"
                     ),
                 );
-                let _ = event_tx.try_send(AppEvent::VadSilenceDurationMsChanged(vad_silence_ms));
+                event_emit::emit_lossy(
+                    &event_tx,
+                    AppEvent::VadSilenceDurationMsChanged(vad_silence_ms),
+                    "ui.vad_silence_changed",
+                );
             });
     }
 
@@ -148,19 +162,33 @@ pub(super) fn wire_ui_signals(
                         "input_level_meter.gate_threshold.changed -> AppEvent::SilenceGateThresholdChanged({threshold:.3})"
                     ),
                 );
-                let _ = event_tx.try_send(AppEvent::SilenceGateThresholdChanged(threshold));
+                event_emit::emit_lossy(
+                    &event_tx,
+                    AppEvent::SilenceGateThresholdChanged(threshold),
+                    "ui.silence_gate_threshold_changed",
+                );
             },
         );
     }
 
     {
         let event_tx = event_tx.clone();
+        let close_action = if tray_available {
+            AppEvent::VisibilityToggled
+        } else {
+            AppEvent::QuitRequested
+        };
+        let close_action_label = if tray_available {
+            "AppEvent::VisibilityToggled"
+        } else {
+            "AppEvent::QuitRequested (tray unavailable)"
+        };
         widgets.close_button.connect_clicked(move |_| {
             diagnostics::pipeline_trace::log(
                 "ui",
-                "close_button.clicked -> AppEvent::VisibilityToggled",
+                format!("close_button.clicked -> {close_action_label}"),
             );
-            let _ = event_tx.try_send(AppEvent::VisibilityToggled);
+            event_emit::emit_critical(&event_tx, close_action.clone(), "ui.close_button");
         });
     }
 
@@ -175,7 +203,7 @@ pub(super) fn wire_ui_signals(
                     "ui",
                     "shortcut Ctrl+Space -> AppEvent::MicToggled",
                 );
-                let _ = event_tx.try_send(AppEvent::MicToggled);
+                event_emit::emit_critical(&event_tx, AppEvent::MicToggled, "ui.ctrl_space");
                 return gtk4::glib::Propagation::Stop;
             }
 
@@ -208,10 +236,10 @@ pub(super) fn wire_ui_signals(
     }
 }
 
-fn active_error_message(model: &CoreModel) -> Option<String> {
-    model.runtime_error.as_ref().cloned().or_else(|| {
+fn active_error_message(model: &CoreModel) -> Option<&str> {
+    model.runtime_error.as_deref().or({
         if let AppState::Error(message) = &model.app_state {
-            Some(message.clone())
+            Some(message.as_str())
         } else {
             None
         }

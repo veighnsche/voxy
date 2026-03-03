@@ -8,7 +8,7 @@ use voxy_core::{AppEvent, CoreCommand};
 use crate::{
     app::behavior::{self, surface::layer_shell::LayerShellBackend},
     diagnostics::pipeline_trace,
-    wiring::transcriber::AppTranscriber,
+    wiring::{event_emit, transcriber::AppTranscriber},
 };
 
 mod app;
@@ -85,11 +85,19 @@ impl CommandBus {
     }
 
     pub(super) fn emit_runtime_error(&self, message: String) {
-        let _ = self.event_tx.try_send(AppEvent::RuntimeError(message));
+        event_emit::emit_critical(
+            &self.event_tx,
+            AppEvent::RuntimeError(message),
+            "command.runtime_error",
+        );
     }
 
     pub(super) fn emit_log_message(&self, message: impl Into<String>) {
-        let _ = self.event_tx.try_send(AppEvent::LogMessage(message.into()));
+        event_emit::emit_lossy(
+            &self.event_tx,
+            AppEvent::LogMessage(message.into()),
+            "command.log_message",
+        );
     }
 
     pub(super) fn rollback_recording_start(&self) {
@@ -105,6 +113,10 @@ impl CommandBus {
             pipeline_trace::log("command", "rollback_recording_start.stop_audio ok");
         }
 
-        let _ = self.event_tx.try_send(AppEvent::RecordingStartRejected);
+        event_emit::emit_critical(
+            &self.event_tx,
+            AppEvent::RecordingStartRejected,
+            "command.recording_start_rejected",
+        );
     }
 }

@@ -1,7 +1,13 @@
-use std::{env, sync::OnceLock};
+use std::{
+    env,
+    sync::{mpsc as std_mpsc, OnceLock},
+    thread,
+    time::Duration,
+};
 
+use tokio::sync::mpsc as tokio_mpsc;
 use voxy_core::{
-    parse_silence_auto_stop_seconds, parse_vad_silence_ms, CoreModel,
+    parse_silence_auto_stop_seconds, parse_vad_silence_ms, AppEvent, CoreModel,
     DEFAULT_SILENCE_GATE_THRESHOLD,
 };
 
@@ -9,6 +15,8 @@ use crate::{app::settings_store, diagnostics};
 
 const SILENCE_AUTO_STOP_SECONDS_ENV: &str = "VOXY_SILENCE_AUTO_STOP_SECONDS";
 const VAD_SILENCE_MS_ENV: &str = "VOXY_STT_VAD_SILENCE_MS";
+const SETTINGS_PERSIST_DEBOUNCE: Duration = Duration::from_millis(150);
+static SETTINGS_PERSIST_TX: OnceLock<std_mpsc::Sender<SettingsSnapshot>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SettingsSnapshot {
@@ -31,6 +39,10 @@ impl SettingsSnapshot {
         model.ui_prefs.vad_silence_duration_ms = self.vad_silence_duration_ms;
         model.ui_prefs.silence_gate_threshold = self.silence_gate_threshold;
     }
+}
+
+pub(super) fn initialize_persist_worker(event_tx: tokio_mpsc::Sender<AppEvent>) {
+    SETTINGS_PERSIST_TX.get_or_init(|| spawn_persist_worker(event_tx));
 }
 
 pub(super) fn load_startup_settings() -> SettingsSnapshot {
@@ -95,77 +107,105 @@ pub(super) fn load_startup_settings() -> SettingsSnapshot {
 }
 
 pub(super) fn persist_changed_settings(before: SettingsSnapshot, after: SettingsSnapshot) {
+    if !did_settings_change(before, after) {
+        return;
+    }
+
+    if let Some(persist_tx) = SETTINGS_PERSIST_TX.get() {
+        if persist_tx.send(after).is_ok() {
+            diagnostics::pipeline_trace::log("settings", "persist queued");
+            return;
+        }
+        diagnostics::pipeline_trace::log(
+            "settings",
+            "persist queue send failed; falling back to synchronous save",
+        );
+    } else {
+        diagnostics::pipeline_trace::log(
+            "settings",
+            "persist worker not initialized; falling back to synchronous save",
+        );
+    }
+
+    if let Err(error) = persist_now(after) {
+        diagnostics::pipeline_trace::log(
+            "settings",
+            format!("synchronous persist failed: {error}"),
+        );
+    }
+}
+
+fn spawn_persist_worker(
+    event_tx: tokio_mpsc::Sender<AppEvent>,
+) -> std_mpsc::Sender<SettingsSnapshot> {
+    let (persist_tx, persist_rx) = std_mpsc::channel::<SettingsSnapshot>();
+    let spawn_result = thread::Builder::new()
+        .name("voxy-settings-persist".to_owned())
+        .spawn(move || run_persist_worker(persist_rx, event_tx));
+
+    if let Err(error) = spawn_result {
+        diagnostics::pipeline_trace::log(
+            "settings",
+            format!("failed to spawn persist worker thread: {error}"),
+        );
+    }
+
+    persist_tx
+}
+
+fn run_persist_worker(
+    persist_rx: std_mpsc::Receiver<SettingsSnapshot>,
+    event_tx: tokio_mpsc::Sender<AppEvent>,
+) {
+    while let Ok(snapshot) = persist_rx.recv() {
+        let mut latest = snapshot;
+
+        loop {
+            match persist_rx.recv_timeout(SETTINGS_PERSIST_DEBOUNCE) {
+                Ok(snapshot) => latest = snapshot,
+                Err(std_mpsc::RecvTimeoutError::Timeout) => break,
+                Err(std_mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = persist_now(latest);
+                    return;
+                }
+            }
+        }
+
+        if let Err(error) = persist_now(latest) {
+            diagnostics::pipeline_trace::log("settings", format!("persist failed: {error}"));
+            let _ = event_tx.blocking_send(AppEvent::RuntimeError(format!(
+                "Failed to persist settings: {error}"
+            )));
+        }
+    }
+}
+
+fn persist_now(snapshot: SettingsSnapshot) -> Result<(), String> {
+    settings_store::save_recording_settings(
+        snapshot.silence_auto_stop_seconds,
+        snapshot.silence_gate_threshold,
+        snapshot.vad_silence_duration_ms,
+    )?;
+
+    diagnostics::pipeline_trace::log(
+        "settings",
+        format!(
+            "saved settings silence_timeout_seconds={} vad_silence_ms={} silence_gate_threshold={:.3}",
+            snapshot.silence_auto_stop_seconds,
+            snapshot.vad_silence_duration_ms,
+            snapshot.silence_gate_threshold
+        ),
+    );
+    Ok(())
+}
+
+fn did_settings_change(before: SettingsSnapshot, after: SettingsSnapshot) -> bool {
     let silence_timeout_changed =
         after.silence_auto_stop_seconds != before.silence_auto_stop_seconds;
     let vad_silence_changed = after.vad_silence_duration_ms != before.vad_silence_duration_ms;
     let silence_gate_changed =
         (after.silence_gate_threshold - before.silence_gate_threshold).abs() > f32::EPSILON;
-
-    if !silence_timeout_changed && !vad_silence_changed && !silence_gate_changed {
-        return;
-    }
-
-    let save_result = settings_store::save_recording_settings(
-        after.silence_auto_stop_seconds,
-        after.silence_gate_threshold,
-        after.vad_silence_duration_ms,
-    );
-
-    if let Err(error) = save_result {
-        if silence_timeout_changed {
-            diagnostics::pipeline_trace::log(
-                "settings",
-                format!(
-                    "failed to save silence_timeout_seconds={}: {error}",
-                    after.silence_auto_stop_seconds
-                ),
-            );
-        }
-        if vad_silence_changed {
-            diagnostics::pipeline_trace::log(
-                "settings",
-                format!(
-                    "failed to save vad_silence_ms={}: {error}",
-                    after.vad_silence_duration_ms
-                ),
-            );
-        }
-        if silence_gate_changed {
-            diagnostics::pipeline_trace::log(
-                "settings",
-                format!(
-                    "failed to save silence_gate_threshold={:.3}: {error}",
-                    after.silence_gate_threshold
-                ),
-            );
-        }
-        return;
-    }
-
-    if silence_timeout_changed {
-        diagnostics::pipeline_trace::log(
-            "settings",
-            format!(
-                "saved silence_timeout_seconds={}",
-                after.silence_auto_stop_seconds
-            ),
-        );
-    }
-    if vad_silence_changed {
-        diagnostics::pipeline_trace::log(
-            "settings",
-            format!("saved vad_silence_ms={}", after.vad_silence_duration_ms),
-        );
-    }
-    if silence_gate_changed {
-        diagnostics::pipeline_trace::log(
-            "settings",
-            format!(
-                "saved silence_gate_threshold={:.3}",
-                after.silence_gate_threshold
-            ),
-        );
-    }
+    silence_timeout_changed || vad_silence_changed || silence_gate_changed
 }
 
 fn initial_silence_auto_stop_seconds() -> u64 {

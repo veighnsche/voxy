@@ -6,7 +6,7 @@ const DEFAULT_APP_ID: &str = "com.vince.voxy";
 
 pub fn build_application() -> Application {
     Application::builder()
-        .application_id(&resolve_app_id())
+        .application_id(resolve_app_id())
         .flags(resolve_flags())
         .build()
 }

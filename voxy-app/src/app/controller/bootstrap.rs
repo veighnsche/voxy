@@ -17,7 +17,7 @@ use crate::{
     },
     diagnostics, tray,
     ui::pages::voxy_window_page::Widgets,
-    wiring::{self, command_bus::CommandBus, transcriber::AppTranscriber},
+    wiring::{self, command_bus::CommandBus, event_emit, transcriber::AppTranscriber},
 };
 
 use super::{event_processing, input_meter_loop, settings_sync, ui_signals};
@@ -45,6 +45,7 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
     let applying_text_update = Rc::new(Cell::new(false));
     let wiring::channels::AppChannels { event_tx, event_rx } =
         wiring::channels::build_event_channels();
+    settings_sync::initialize_persist_worker(event_tx.clone());
     let event_rx = Rc::new(RefCell::new(event_rx));
 
     let audio_input = Arc::new(voxy_audio::InputEngine::new());
@@ -56,20 +57,37 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         "activate",
         format!("selected_stt_backend={}", transcriber.backend_name()),
     );
-    let _ = event_tx.try_send(AppEvent::LogMessage(format!(
-        "STT backend: {}",
-        transcriber.backend_name()
-    )));
+    event_emit::emit_lossy(
+        &event_tx,
+        AppEvent::LogMessage(format!("STT backend: {}", transcriber.backend_name())),
+        "bootstrap.backend_log",
+    );
 
     diagnostics::smoke_hooks::install(&widgets.window, &event_tx);
+    let tray_available = match tray::start(event_tx.clone()) {
+        Ok(()) => true,
+        Err(message) => {
+            event_emit::emit_critical(
+                &event_tx,
+                AppEvent::RuntimeError(message),
+                "bootstrap.tray_start",
+            );
+            false
+        }
+    };
+
     diagnostics::smoke_hooks::install_visibility_toggle_injector({
         let event_tx = event_tx.clone();
         move || {
-            let _ = event_tx.try_send(AppEvent::VisibilityToggled);
+            event_emit::emit_lossy(
+                &event_tx,
+                AppEvent::VisibilityToggled,
+                "bootstrap.smoke_toggle",
+            );
         }
     });
 
-    close_request::install_hide_on_close(&widgets.window, event_tx.clone());
+    close_request::install_close_behavior(&widgets.window, event_tx.clone(), tray_available);
     drag::connect_drag_surface(
         &widgets.window,
         {
@@ -90,7 +108,11 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
                     "ui",
                     "drag_surface.double_click -> AppEvent::MicToggled",
                 );
-                let _ = event_tx.try_send(AppEvent::MicToggled);
+                event_emit::emit_critical(
+                    &event_tx,
+                    AppEvent::MicToggled,
+                    "bootstrap.drag_double_click",
+                );
             }
         },
     );
@@ -102,7 +124,11 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
                 "ui",
                 format!("resize_handle.drag -> AppEvent::WindowResizeRequested {width}x{height}"),
             );
-            let _ = event_tx.try_send(AppEvent::WindowResizeRequested { width, height });
+            event_emit::emit_lossy(
+                &event_tx,
+                AppEvent::WindowResizeRequested { width, height },
+                "bootstrap.resize_drag",
+            );
         }
     });
 
@@ -121,6 +147,7 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         Rc::clone(&model),
         Rc::clone(&applying_text_update),
         event_tx.clone(),
+        tray_available,
     );
 
     event_processing::start_event_loop(
@@ -139,14 +166,12 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         event_tx.clone(),
     );
 
-    if let Err(message) = tray::start(event_tx.clone()) {
-        let _ = event_tx.try_send(AppEvent::RuntimeError(message));
-    }
-
     if !layer_shell_backend.is_supported() {
-        let _ = event_tx.try_send(AppEvent::RuntimeError(
-            LAYER_SHELL_UNSUPPORTED_MESSAGE.to_owned(),
-        ));
+        event_emit::emit_critical(
+            &event_tx,
+            AppEvent::RuntimeError(LAYER_SHELL_UNSUPPORTED_MESSAGE.to_owned()),
+            "bootstrap.layer_shell_unsupported",
+        );
     }
 
     render_ui(

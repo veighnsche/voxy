@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
-pub(super) const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
-pub(super) const HOME_ENV: &str = "HOME";
+const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
+const HOME_ENV: &str = "HOME";
 const APP_CONFIG_DIR: &str = "voxy";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 

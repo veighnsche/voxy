@@ -159,13 +159,13 @@ pub fn send_termination_signal(child: &mut Child) -> Result<()> {
                 .context("failed to send SIGTERM to voxy-app");
         }
 
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(unix))]
     {
         println!("[xtask] sending kill signal to process");
         child.kill().context("failed to terminate voxy-app")?;
-        return Ok(());
+        Ok(())
     }
 }

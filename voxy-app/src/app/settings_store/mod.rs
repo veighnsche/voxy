@@ -58,11 +58,13 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::paths::{HOME_ENV, XDG_CONFIG_HOME_ENV};
     use super::{
         load_silence_auto_stop_seconds, load_silence_gate_threshold, load_vad_silence_ms,
         save_recording_settings, settings_file_path,
     };
+
+    const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
+    const HOME_ENV: &str = "HOME";
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 

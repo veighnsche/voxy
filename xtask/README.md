@@ -28,6 +28,13 @@ Behavior:
 2. Launches the GUI with smoke ready marker + auto-close hook
 3. Verifies startup and clean process exit
 
+`gui quit-fallback`
+
+Behavior:
+1. Builds `voxy-app` (unless `--no-build` is passed)
+2. Launches GUI with tray disabled and synthetic window-close injection
+3. Verifies close request exits app (does not hide to tray) within timeout
+
 `gui reset-flow`
 
 Behavior:
@@ -56,12 +63,31 @@ Behavior:
 3. Asserts exactly one window-creation marker was emitted
 4. Fails if visibility flow recreates/rebuilds the window
 
+`gui stt-fixture-smoke`
+
+Behavior:
+1. Builds `voxy-app` (unless `--no-build` is passed)
+2. Launches GUI with dummy STT backend
+3. Injects a synthetic record/fixture/stop sequence through smoke hooks
+4. Verifies startup and clean process exit
+
+`gui stt-live-opt-in`
+
+Behavior:
+1. Builds `voxy-app` (unless `--no-build` is passed)
+2. Requires `VOXY_E2E_LIVE_STT=1` guard to run
+3. Launches GUI with OpenAI backend + synthetic record/fixture/stop sequence
+4. Verifies startup and clean process exit for controlled release validation
+
 ## Usage
 
 ```bash
 cargo run -p xtask -- gui smoke
 cargo run -p xtask -- gui lifecycle
+cargo run -p xtask -- gui quit-fallback
 cargo run -p xtask -- gui reset-flow
+cargo run -p xtask -- gui stt-fixture-smoke
+cargo run -p xtask -- gui stt-live-opt-in
 cargo run -p xtask -- gui visibility-toggle-flow
 cargo run -p xtask -- gui visibility-smoke
 cargo run -p xtask -- gui visibility-window-guard

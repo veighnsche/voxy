@@ -11,6 +11,7 @@ use gtk4::{
 const MIN_LEVEL: f32 = 0.0;
 const MAX_LEVEL: f32 = 1.0;
 const GATE_HIGH_OFFSET_DELTA: f32 = 0.15;
+type ThresholdChangedHandlers = Rc<RefCell<Vec<Box<dyn Fn(f32)>>>>;
 
 #[derive(Clone)]
 pub struct InputLevelMeter {
@@ -19,7 +20,7 @@ pub struct InputLevelMeter {
     threshold_line: DrawingArea,
     gate_threshold: Rc<Cell<f32>>,
     countdown_label: Label,
-    threshold_changed_handlers: Rc<RefCell<Vec<Box<dyn Fn(f32)>>>>,
+    threshold_changed_handlers: ThresholdChangedHandlers,
 }
 
 pub fn build() -> InputLevelMeter {
@@ -32,8 +33,7 @@ pub fn build() -> InputLevelMeter {
     title.set_width_chars(2);
 
     let gate_threshold = Rc::new(Cell::new(voxy_core::DEFAULT_SILENCE_GATE_THRESHOLD));
-    let threshold_changed_handlers: Rc<RefCell<Vec<Box<dyn Fn(f32)>>>> =
-        Rc::new(RefCell::new(Vec::new()));
+    let threshold_changed_handlers: ThresholdChangedHandlers = Rc::new(RefCell::new(Vec::new()));
 
     let bar = LevelBar::new();
     // Keep the meter as a single widget instead of many discrete blocks.

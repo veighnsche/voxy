@@ -26,8 +26,11 @@ struct GuiArgs {
 enum GuiCommand {
     DragMathSim(tasks::gui::drag_math_sim::DragMathSimArgs),
     Lifecycle(tasks::gui::lifecycle::LifecycleArgs),
+    QuitFallback(tasks::gui::quit_fallback::QuitFallbackArgs),
     ResetFlow(tasks::gui::reset_flow::ResetFlowArgs),
     Smoke(tasks::gui::smoke::SmokeArgs),
+    SttFixtureSmoke(tasks::gui::stt_fixture_smoke::SttFixtureSmokeArgs),
+    SttLiveOptIn(tasks::gui::stt_live_opt_in::SttLiveOptInArgs),
     VisibilitySmoke(tasks::gui::visibility_smoke::VisibilitySmokeArgs),
     VisibilityToggleFlow(tasks::gui::visibility_toggle_flow::VisibilityToggleFlowArgs),
     VisibilityWindowGuard(tasks::gui::visibility_window_guard::VisibilityWindowGuardArgs),
@@ -40,8 +43,11 @@ fn main() -> Result<()> {
         Command::Gui(gui) => match gui.command {
             GuiCommand::DragMathSim(args) => tasks::gui::drag_math_sim::run(args),
             GuiCommand::Lifecycle(args) => tasks::gui::lifecycle::run(args),
+            GuiCommand::QuitFallback(args) => tasks::gui::quit_fallback::run(args),
             GuiCommand::ResetFlow(args) => tasks::gui::reset_flow::run(args),
             GuiCommand::Smoke(args) => tasks::gui::smoke::run(args),
+            GuiCommand::SttFixtureSmoke(args) => tasks::gui::stt_fixture_smoke::run(args),
+            GuiCommand::SttLiveOptIn(args) => tasks::gui::stt_live_opt_in::run(args),
             GuiCommand::VisibilitySmoke(args) => tasks::gui::visibility_smoke::run(args),
             GuiCommand::VisibilityToggleFlow(args) => tasks::gui::visibility_toggle_flow::run(args),
             GuiCommand::VisibilityWindowGuard(args) => {

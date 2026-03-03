@@ -14,8 +14,19 @@ const AUTO_CLOSE_MS_ENV: &str = "VOXY_SMOKE_AUTO_CLOSE_MS";
 const INJECT_RESET_ENV: &str = "VOXY_SMOKE_INJECT_RESET";
 const INJECT_VISIBILITY_TOGGLE_ENV: &str = "VOXY_SMOKE_INJECT_VISIBILITY_TOGGLE";
 const VISIBILITY_TOGGLE_COUNT_ENV: &str = "VOXY_SMOKE_VISIBILITY_TOGGLE_COUNT";
+const INJECT_RECORD_FLOW_ENV: &str = "VOXY_SMOKE_INJECT_RECORD_FLOW";
+const RECORD_FLOW_START_MS_ENV: &str = "VOXY_SMOKE_RECORD_START_MS";
+const RECORD_FLOW_FIXTURE_MS_ENV: &str = "VOXY_SMOKE_RECORD_FIXTURE_MS";
+const RECORD_FLOW_STOP_MS_ENV: &str = "VOXY_SMOKE_RECORD_STOP_MS";
+const RECORD_FLOW_FIXTURE_ID_ENV: &str = "VOXY_SMOKE_RECORD_FIXTURE_ID";
+const INJECT_WINDOW_CLOSE_ENV: &str = "VOXY_SMOKE_INJECT_WINDOW_CLOSE";
+const WINDOW_CLOSE_MS_ENV: &str = "VOXY_SMOKE_WINDOW_CLOSE_MS";
 const RESET_EMIT_DELAY_MS: u64 = 100;
 const VISIBILITY_TOGGLE_EMIT_INTERVAL_MS: u64 = 140;
+const DEFAULT_RECORD_FLOW_START_MS: u64 = 120;
+const DEFAULT_RECORD_FLOW_FIXTURE_MS: u64 = 260;
+const DEFAULT_RECORD_FLOW_STOP_MS: u64 = 1_000;
+const DEFAULT_WINDOW_CLOSE_MS: u64 = 220;
 static WINDOW_CREATED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn install(window: &ApplicationWindow, event_tx: &mpsc::Sender<AppEvent>) {
@@ -24,11 +35,35 @@ pub fn install(window: &ApplicationWindow, event_tx: &mpsc::Sender<AppEvent>) {
     }
 
     if env_flag_enabled(INJECT_RESET_ENV) {
-        let event_tx = event_tx.clone();
-        gtk4::glib::timeout_add_local(Duration::from_millis(RESET_EMIT_DELAY_MS), move || {
-            let _ = event_tx.try_send(AppEvent::ResetRequested);
-            gtk4::glib::ControlFlow::Break
-        });
+        schedule_event(
+            event_tx.clone(),
+            Duration::from_millis(RESET_EMIT_DELAY_MS),
+            AppEvent::ResetRequested,
+        );
+    }
+
+    if env_flag_enabled(INJECT_RECORD_FLOW_ENV) {
+        let start_ms = env_u64(RECORD_FLOW_START_MS_ENV).unwrap_or(DEFAULT_RECORD_FLOW_START_MS);
+        let fixture_ms =
+            env_u64(RECORD_FLOW_FIXTURE_MS_ENV).unwrap_or(DEFAULT_RECORD_FLOW_FIXTURE_MS);
+        let stop_ms = env_u64(RECORD_FLOW_STOP_MS_ENV).unwrap_or(DEFAULT_RECORD_FLOW_STOP_MS);
+        let fixture_id = env_u8(RECORD_FLOW_FIXTURE_ID_ENV).unwrap_or(1);
+
+        schedule_event(
+            event_tx.clone(),
+            Duration::from_millis(start_ms),
+            AppEvent::MicToggled,
+        );
+        schedule_event(
+            event_tx.clone(),
+            Duration::from_millis(fixture_ms),
+            AppEvent::FixtureInjectRequested(fixture_id),
+        );
+        schedule_event(
+            event_tx.clone(),
+            Duration::from_millis(stop_ms),
+            AppEvent::MicToggled,
+        );
     }
 
     if let Some(delay_ms) = env_u64(AUTO_CLOSE_MS_ENV) {
@@ -37,6 +72,15 @@ pub fn install(window: &ApplicationWindow, event_tx: &mpsc::Sender<AppEvent>) {
             if let Some(app) = window.application() {
                 app.quit();
             }
+            gtk4::glib::ControlFlow::Break
+        });
+    }
+
+    if env_flag_enabled(INJECT_WINDOW_CLOSE_ENV) {
+        let delay_ms = env_u64(WINDOW_CLOSE_MS_ENV).unwrap_or(DEFAULT_WINDOW_CLOSE_MS);
+        let window = window.clone();
+        gtk4::glib::timeout_add_local(Duration::from_millis(delay_ms), move || {
+            window.close();
             gtk4::glib::ControlFlow::Break
         });
     }
@@ -88,4 +132,17 @@ fn env_u32(name: &str) -> Option<u32> {
     env::var(name)
         .ok()
         .and_then(|value| value.trim().parse::<u32>().ok())
+}
+
+fn env_u8(name: &str) -> Option<u8> {
+    env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u8>().ok())
+}
+
+fn schedule_event(event_tx: mpsc::Sender<AppEvent>, delay: Duration, event: AppEvent) {
+    gtk4::glib::timeout_add_local(delay, move || {
+        let _ = event_tx.try_send(event.clone());
+        gtk4::glib::ControlFlow::Break
+    });
 }

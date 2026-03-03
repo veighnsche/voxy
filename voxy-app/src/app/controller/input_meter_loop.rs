@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::mpsc;
 use voxy_core::{parse_max_recording_seconds, AppEvent, AppState, CoreModel, RecordingStopReason};
 
-use crate::{diagnostics, ui::pages::voxy_window_page::Widgets};
+use crate::{diagnostics, ui::pages::voxy_window_page::Widgets, wiring::event_emit};
 
 const INPUT_LEVEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_RECORDING_SECONDS_ENV: &str = "VOXY_MAX_RECORDING_SECONDS";
@@ -80,12 +80,7 @@ pub(super) fn start_input_level_meter_loop(
                 }
             }
 
-            if let Err(error) = event_tx.try_send(AppEvent::MicToggled) {
-                diagnostics::pipeline_trace::log(
-                    "guard",
-                    format!("stop_policy_send_failed={error}"),
-                );
-            }
+            event_emit::emit_critical(&event_tx, AppEvent::MicToggled, "input_meter.auto_stop");
         }
 
         gtk4::glib::ControlFlow::Continue

@@ -36,7 +36,6 @@ pub(crate) fn connect_drag_surface(
     {
         let drag_session = Rc::clone(&drag_session);
         let trace_state = Rc::clone(&trace_state);
-        let drag_math_mode = drag_math_mode;
 
         drag_gesture.connect_drag_begin(move |_gesture, start_x, start_y| {
             if !hit_test::should_start_drag(&window_for_pick, start_x, start_y) {
@@ -64,7 +63,6 @@ pub(crate) fn connect_drag_surface(
     {
         let drag_session = Rc::clone(&drag_session);
         let trace_state = Rc::clone(&trace_state);
-        let drag_math_mode = drag_math_mode;
 
         drag_gesture.connect_drag_update(move |_gesture, offset_x, offset_y| {
             if !drag_session.is_active() {

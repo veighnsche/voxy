@@ -23,16 +23,27 @@ make target action:
 
 validate: doctor
     cargo fmt --all -- --check
-    cargo check
+    cargo check --workspace
     cargo test -p voxy-core
     cargo test -p voxy-audio
     cargo test -p voxy-stt
+    cargo test -p voxy-app
+    cargo clippy --workspace --all-targets -- -D warnings
+    just validate-packaging
     cargo run -p xtask -- gui smoke
     cargo run -p xtask -- gui lifecycle
+    cargo run -p xtask -- gui quit-fallback
     cargo run -p xtask -- gui reset-flow
+    cargo run -p xtask -- gui stt-fixture-smoke
     cargo run -p xtask -- gui visibility-toggle-flow
     cargo run -p xtask -- gui visibility-smoke
     cargo run -p xtask -- gui visibility-window-guard
+
+validate-packaging:
+    ./scripts/release/validate-packaging.sh
+
+validate-packaging-strict:
+    VOXY_PACKAGING_VALIDATE_STRICT=1 ./scripts/release/validate-packaging.sh
 
 gui: doctor
     cargo run -p voxy-app

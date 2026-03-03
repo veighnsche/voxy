@@ -1,2 +1,3 @@
-// Workspace-level live e2e spec placeholder.
-// Live STT e2e must remain opt-in via VOXY_E2E_LIVE=1.
+// Workspace-level live e2e is intentionally opt-in (not CI-required).
+// Run with:
+//   VOXY_E2E_LIVE_STT=1 cargo run -p xtask -- gui stt-live-opt-in

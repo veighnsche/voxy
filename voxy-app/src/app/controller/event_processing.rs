@@ -23,13 +23,13 @@ pub(super) fn start_event_loop(
     event_rx: Rc<RefCell<mpsc::Receiver<AppEvent>>>,
     command_bus: CommandBus,
 ) {
-    let model_for_events = Rc::clone(&model);
-    let command_bus_for_events = command_bus.clone();
+    let model_for_render = model;
+    let model_for_events = Rc::clone(&model_for_render);
+    let command_bus_for_events = command_bus;
 
-    let widgets_for_render = widgets.clone();
-    let model_for_render = Rc::clone(&model);
-    let applying_for_render = Rc::clone(&applying_text_update);
-    let layer_shell_backend_for_render = Rc::clone(&layer_shell_backend);
+    let widgets_for_render = widgets;
+    let applying_for_render = applying_text_update;
+    let layer_shell_backend_for_render = layer_shell_backend;
 
     wiring::event_loop::start(
         event_rx,
