@@ -35,7 +35,7 @@ Guarantee delivery for critical lifecycle events even under channel pressure.
 - Validation evidence: `just validate` includes this test path.
 
 ## VOXY-P0-003: Deterministic Stop/Commit Transcript Flush
-Status: `partially implemented`; reconnect edge-case integration coverage still pending.
+Status: `implemented in code/tests`.
 
 ### Goal
 Prevent final transcript loss during stop and shutdown.
@@ -47,7 +47,7 @@ Prevent final transcript loss during stop and shutdown.
 
 ### Verification
 - Deterministic payload/sequence tests cover matching completion, mismatched completion suppression, and stale-completion rejection until fresh commit-ack.
-- Remaining gap: full mocked-websocket reconnect scenario coverage.
+- Mocked-websocket reconnect integration test validates stop-commit behavior across reconnect and verifies stale completion is ignored until fresh commit-ack/completion.
 
 ## VOXY-P0-004: Audio Failure Surface and Bounds Safety
 Status: `implemented in code/tests`.

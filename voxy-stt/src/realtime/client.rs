@@ -1131,24 +1131,32 @@ fn ensure_rustls_provider() -> Result<(), &'static str> {
 mod tests {
     use std::{sync::Mutex, time::Duration};
 
-    use serde_json::json;
-    use tokio::{sync::mpsc, time};
-    use tokio_tungstenite::tungstenite::{self, http::Response};
-    use voxy_core::AppEvent;
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use serde_json::{json, Value};
+    use tokio::{net::TcpListener, sync::mpsc, time};
+    use tokio_tungstenite::{
+        accept_async,
+        tungstenite::{self, http::Response},
+        WebSocketStream,
+    };
+    use voxy_core::{AppEvent, TranscriptionModelId};
 
     use super::{
         completion_matches_expected, handle_server_payload, observe_stop_flush_progress,
         parse_realtime_url, parse_source_poll_ms, reconnect_config_from_env, reconnect_decision,
         redact_ws_url_for_trace, should_forward_server_event_to_app,
-        should_retry_tungstenite_error, ReconnectConfig, RetryDecision, DEFAULT_REALTIME_URL,
-        DEFAULT_RECONNECT_BASE_MS, DEFAULT_RECONNECT_ENABLED, DEFAULT_RECONNECT_MAX_MS,
-        DEFAULT_RECONNECT_MAX_RETRIES, DEFAULT_SOURCE_POLL_MS, RECONNECT_BASE_MS_ENV,
-        RECONNECT_ENABLED_ENV, RECONNECT_MAX_MS_ENV, RECONNECT_MAX_RETRIES_ENV,
+        should_retry_tungstenite_error, OpenAiRealtimeTranscriber, ReconnectConfig, RetryDecision,
+        DEFAULT_REALTIME_URL, DEFAULT_RECONNECT_BASE_MS, DEFAULT_RECONNECT_ENABLED,
+        DEFAULT_RECONNECT_MAX_MS, DEFAULT_RECONNECT_MAX_RETRIES, DEFAULT_SOURCE_POLL_MS,
+        REALTIME_URL_ENV, RECONNECT_BASE_MS_ENV, RECONNECT_ENABLED_ENV, RECONNECT_MAX_MS_ENV,
+        RECONNECT_MAX_RETRIES_ENV, STOP_FLUSH_TIMEOUT_MS_ENV,
     };
+    use crate::config::VOXY_OPENAI_API_KEY_ENV;
     use crate::realtime::protocol::server_event::ServerEvent;
-    use crate::traits::TranscriberOutput;
+    use crate::traits::{StreamingTranscriber, TranscriberOutput, TranscriberSessionConfig};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+    type MockSocket = WebSocketStream<tokio::net::TcpStream>;
 
     struct EnvVarGuard {
         key: String,
@@ -1191,6 +1199,184 @@ mod tests {
         let _base = EnvVarGuard::unset(RECONNECT_BASE_MS_ENV);
         let _max = EnvVarGuard::unset(RECONNECT_MAX_MS_ENV);
         reconnect_config_from_env()
+    }
+
+    fn message_to_json(message: tungstenite::Message) -> Option<Value> {
+        match message {
+            tungstenite::Message::Text(text) => serde_json::from_str(text.as_ref()).ok(),
+            tungstenite::Message::Binary(bytes) => serde_json::from_slice(bytes.as_ref()).ok(),
+            tungstenite::Message::Ping(_) | tungstenite::Message::Pong(_) => None,
+            tungstenite::Message::Close(_) => None,
+            tungstenite::Message::Frame(_) => None,
+        }
+    }
+
+    async fn receive_client_event(socket: &mut MockSocket, expected_type: &str) -> Value {
+        loop {
+            let message = match time::timeout(Duration::from_secs(3), socket.next()).await {
+                Ok(Some(Ok(message))) => message,
+                Ok(Some(Err(error))) => {
+                    panic!("mock websocket read failed while waiting for {expected_type}: {error}")
+                }
+                Ok(None) => panic!("mock websocket closed before receiving {expected_type}"),
+                Err(_) => panic!("timed out waiting for client event {expected_type}"),
+            };
+
+            if matches!(message, tungstenite::Message::Close(_)) {
+                panic!("client closed socket before sending {expected_type}");
+            }
+
+            if let Some(value) = message_to_json(message) {
+                let event_type = value.get("type").and_then(Value::as_str);
+                if event_type == Some(expected_type) {
+                    return value;
+                }
+            }
+        }
+    }
+
+    async fn try_receive_client_event(
+        socket: &mut MockSocket,
+        expected_type: &str,
+        timeout: Duration,
+    ) -> Option<Value> {
+        let deadline = time::Instant::now() + timeout;
+        while time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(time::Instant::now());
+            let next = match time::timeout(remaining, socket.next()).await {
+                Ok(next) => next,
+                Err(_) => return None,
+            };
+
+            let message = match next {
+                Some(Ok(message)) => message,
+                Some(Err(_)) | None => return None,
+            };
+
+            if matches!(message, tungstenite::Message::Close(_)) {
+                return None;
+            }
+
+            if let Some(value) = message_to_json(message) {
+                let event_type = value.get("type").and_then(Value::as_str);
+                if event_type == Some(expected_type) {
+                    return Some(value);
+                }
+            }
+        }
+
+        None
+    }
+
+    async fn send_server_event(socket: &mut MockSocket, payload: Value) {
+        socket
+            .send(tungstenite::Message::Text(payload.to_string()))
+            .await
+            .expect("mock websocket should send server payload");
+    }
+
+    async fn run_reconnect_stop_flush_mock_server(listener: TcpListener, expected_model: &str) {
+        let (first_stream, _) = time::timeout(Duration::from_secs(3), listener.accept())
+            .await
+            .expect("timed out waiting for first websocket client connection")
+            .expect("first websocket client should connect");
+        let mut first_socket = accept_async(first_stream)
+            .await
+            .expect("first websocket handshake should succeed");
+        let first_update =
+            receive_client_event(&mut first_socket, "transcription_session.update").await;
+        assert_eq!(
+            first_update
+                .get("session")
+                .and_then(|session| session.get("input_audio_transcription"))
+                .and_then(|input| input.get("model"))
+                .and_then(Value::as_str),
+            Some(expected_model),
+            "first connection should negotiate expected model",
+        );
+        let _ = first_socket.close(None).await;
+
+        for reconnect_attempt in 1..=4usize {
+            let (stream, _) = time::timeout(Duration::from_secs(3), listener.accept())
+                .await
+                .expect("timed out waiting for reconnect websocket client connection")
+                .expect("reconnect websocket client should connect");
+            let mut socket = accept_async(stream)
+                .await
+                .expect("reconnect websocket handshake should succeed");
+            let update = receive_client_event(&mut socket, "transcription_session.update").await;
+            assert_eq!(
+                update
+                    .get("session")
+                    .and_then(|session| session.get("input_audio_transcription"))
+                    .and_then(|input| input.get("model"))
+                    .and_then(Value::as_str),
+                Some(expected_model),
+                "reconnect should preserve negotiated model",
+            );
+
+            if try_receive_client_event(
+                &mut socket,
+                "input_audio_buffer.commit",
+                Duration::from_secs(3),
+            )
+            .await
+            .is_none()
+            {
+                if reconnect_attempt == 4 {
+                    panic!("did not observe stop commit after reconnect attempts");
+                }
+                continue;
+            }
+
+            send_server_event(
+                &mut socket,
+                json!({
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "item_id": "item-stale",
+                    "transcript": "stale"
+                }),
+            )
+            .await;
+
+            if let Ok(next) = time::timeout(Duration::from_millis(250), socket.next()).await {
+                match next {
+                    Some(Ok(tungstenite::Message::Close(_))) | None => {
+                        panic!(
+                            "client closed before commit ack; stale completion was incorrectly accepted"
+                        );
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => {
+                        panic!("mock websocket read failed after stale completion: {error}");
+                    }
+                }
+            }
+
+            send_server_event(
+                &mut socket,
+                json!({
+                    "type": "input_audio_buffer.committed",
+                    "item_id": "item-fresh",
+                    "previous_item_id": "item-stale"
+                }),
+            )
+            .await;
+            send_server_event(
+                &mut socket,
+                json!({
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "item_id": "item-fresh",
+                    "transcript": "final"
+                }),
+            )
+            .await;
+
+            let _ = time::timeout(Duration::from_secs(2), socket.next()).await;
+            return;
+        }
+
+        panic!("reconnect server did not observe commit event");
     }
 
     #[test]
@@ -1457,6 +1643,138 @@ mod tests {
                 .await
                 .is_err(),
             "mismatched completion should not emit SegmentCommitted"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_flush_survives_reconnect_and_ignores_stale_completion_integration() {
+        let _env_lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock websocket listener should bind");
+        let ws_url = format!(
+            "ws://{}",
+            listener
+                .local_addr()
+                .expect("listener should have local address")
+        );
+        let _api_key = EnvVarGuard::set(VOXY_OPENAI_API_KEY_ENV, "sk-test");
+        let _realtime_url = EnvVarGuard::set(REALTIME_URL_ENV, &ws_url);
+        let _reconnect_enabled = EnvVarGuard::set(RECONNECT_ENABLED_ENV, "true");
+        let _reconnect_max_retries = EnvVarGuard::set(RECONNECT_MAX_RETRIES_ENV, "3");
+        let _reconnect_base_ms = EnvVarGuard::set(RECONNECT_BASE_MS_ENV, "10");
+        let _reconnect_max_ms = EnvVarGuard::set(RECONNECT_MAX_MS_ENV, "10");
+        let _stop_flush_timeout = EnvVarGuard::set(STOP_FLUSH_TIMEOUT_MS_ENV, "2000");
+
+        let (event_tx, mut event_rx) = mpsc::channel(64);
+        let transcriber = OpenAiRealtimeTranscriber::with_source_poll_interval(
+            event_tx,
+            None,
+            Duration::from_millis(10),
+        );
+        let mut downlink_rx = transcriber.subscribe();
+        let config =
+            TranscriberSessionConfig::from_model(TranscriptionModelId::Gpt4oMiniTranscribe);
+
+        let server = tokio::spawn(run_reconnect_stop_flush_mock_server(
+            listener,
+            config.model.as_api_id(),
+        ));
+
+        time::timeout(Duration::from_secs(3), transcriber.start(config.clone()))
+            .await
+            .expect("transcriber start should not time out")
+            .expect("transcriber start should succeed");
+
+        let mut session_started_count = 0usize;
+        while session_started_count < 2 {
+            let downlink_event = time::timeout(Duration::from_secs(3), downlink_rx.recv())
+                .await
+                .expect("expected session started event before timeout")
+                .expect("downlink channel should stay open");
+            match downlink_event {
+                TranscriberOutput::SessionStarted(session_config) => {
+                    assert_eq!(
+                        session_config, config,
+                        "reconnect should keep session config unchanged"
+                    );
+                    session_started_count += 1;
+                }
+                TranscriberOutput::Error(message) => {
+                    panic!("unexpected downlink error before stop: {message}");
+                }
+                _ => {}
+            }
+        }
+
+        time::timeout(Duration::from_secs(3), transcriber.stop())
+            .await
+            .expect("transcriber stop should not time out")
+            .expect("transcriber stop should succeed");
+        server
+            .await
+            .expect("mock websocket server task should complete");
+
+        let mut segment_committed_count = 0usize;
+        let mut saw_session_stopped = false;
+        let mut downlink_errors = Vec::new();
+        let collect_downlink_deadline = time::Instant::now() + Duration::from_secs(2);
+        while time::Instant::now() < collect_downlink_deadline {
+            let remaining =
+                collect_downlink_deadline.saturating_duration_since(time::Instant::now());
+            match time::timeout(remaining, downlink_rx.recv()).await {
+                Ok(Ok(TranscriberOutput::SegmentCommitted)) => {
+                    segment_committed_count += 1;
+                }
+                Ok(Ok(TranscriberOutput::SessionStopped)) => {
+                    saw_session_stopped = true;
+                    break;
+                }
+                Ok(Ok(TranscriberOutput::Error(message))) => {
+                    downlink_errors.push(message);
+                }
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) => break,
+                Err(_) => break,
+            }
+        }
+        assert_eq!(
+            segment_committed_count, 1,
+            "only the fresh completion should commit a segment"
+        );
+        assert!(
+            saw_session_stopped,
+            "session should emit SessionStopped after stop"
+        );
+        assert!(
+            downlink_errors.is_empty(),
+            "unexpected downlink errors during reconnect stop flush: {downlink_errors:?}"
+        );
+
+        let mut commit_requested_count = 0usize;
+        let mut runtime_errors = Vec::new();
+        let collect_app_deadline = time::Instant::now() + Duration::from_millis(600);
+        while time::Instant::now() < collect_app_deadline {
+            match time::timeout(Duration::from_millis(75), event_rx.recv()).await {
+                Ok(Some(AppEvent::CommitRequested)) => {
+                    commit_requested_count += 1;
+                }
+                Ok(Some(AppEvent::RuntimeError(message))) => {
+                    runtime_errors.push(message);
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+        assert_eq!(
+            commit_requested_count, 1,
+            "stale completion must not emit CommitRequested"
+        );
+        assert!(
+            runtime_errors.is_empty(),
+            "unexpected runtime errors during reconnect stop flush: {runtime_errors:?}"
         );
     }
 

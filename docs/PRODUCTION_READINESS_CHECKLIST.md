@@ -9,7 +9,6 @@ Actionable P0 implementation tickets live in `docs/PRODUCTION_P0_TICKETS.md`.
 Status: **NOT production ready**.
 
 Highest current risks:
-- Reconnect-path transcript evidence is unit-level; full mocked-websocket reconnect integration is still pending.
 - Release evidence remains manual (CI links, rollback drill, owner assignment).
 
 ## P0: Must Pass Before Any Production Launch
@@ -30,9 +29,9 @@ Highest current risks:
 
 ### 3. Transcript Integrity on Stop
 - [x] Stop waits for commit + completion (or deterministic timeout path) before close.
-- [ ] Final segment is not lost during stop, disconnect, or reconnect.
+- [x] Final segment is not lost during stop, disconnect, or reconnect.
 - [x] Protocol correlation uses item identifiers where applicable.
-- [ ] Required evidence: deterministic integration tests with mocked websocket server.
+- [x] Required evidence: deterministic integration tests with mocked websocket server.
 - [ ] Code refs: `voxy-stt/src/realtime/client.rs`, `voxy-stt/src/realtime/event_mapper.rs`, `voxy-stt/src/realtime/protocol/server_event.rs`.
 
 ### 4. Audio Reliability and Error Surfacing
