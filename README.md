@@ -110,8 +110,9 @@ VOXY_STT_BACKEND=dummy just gui
   - `VOXY_OPENAI_API_KEY`
   - `VOXY_OPENAI_API_KEY_FILE`
   - `OPENAI_API_KEY`
-  - `.env`
-  - `.env.local` (overrides `.env`)
+  - `.env` / `.env.local` from `VOXY_STT_DOTENV_DIR` (or current working directory when unset)
+- Dotenv loading can be disabled with `VOXY_STT_DOTENV_ENABLED=0`.
+- In dotenv files, `VOXY_OPENAI_API_KEY_FILE` must be a relative path inside the dotenv directory.
 - Missing key surfaces as a runtime error banner.
 
 ## Runtime Configuration
@@ -123,10 +124,13 @@ Environment variables:
 - `VOXY_UI_EVENT_POLL_MS` (default `16`): UI event loop poll cadence.
 - `VOXY_STT_SOURCE_POLL_MS` (default `20`): audio source poll cadence for STT uplink.
 - `VOXY_STT_RECONNECT_ENABLED` (default `true`): enable reconnect on retryable websocket failures.
-- `VOXY_STT_RECONNECT_MAX_RETRIES` (default `0` = unlimited): reconnect retry cap.
+- `VOXY_STT_RECONNECT_MAX_RETRIES` (default `8`, set `0` for unlimited): reconnect retry cap.
 - `VOXY_STT_RECONNECT_BASE_MS` (default `250`): initial reconnect backoff delay.
 - `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
-- `VOXY_AUDIO_FRAME_MS` (default `20`): capture frame size.
+- `VOXY_STT_STOP_FLUSH_TIMEOUT_MS` (default `3000`): max wait for commit/completion flush after stop.
+- `VOXY_STT_DOTENV_ENABLED` (default `true`): enable `.env`/`.env.local` API key lookup.
+- `VOXY_STT_DOTENV_DIR` (default current working directory): directory scanned for `.env` and `.env.local`.
+- `VOXY_AUDIO_FRAME_MS` (default `20`, allowed `5..=200`): capture frame size.
 - `VOXY_STT_VAD_SILENCE_MS` (default `1600`): initial VAD pause.
 - `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence timeout.
 - `VOXY_MAX_RECORDING_SECONDS` (default `1800`, `0` disables hard stop).
@@ -169,6 +173,8 @@ just gui-trace every=10
 
 ```bash
 just validate
+# optional strict packaging validation:
+just validate-packaging-strict
 ```
 
 Or run GUI tasks directly:
@@ -176,7 +182,10 @@ Or run GUI tasks directly:
 ```bash
 cargo run -p xtask -- gui smoke
 cargo run -p xtask -- gui lifecycle
+cargo run -p xtask -- gui quit-fallback
 cargo run -p xtask -- gui reset-flow
+cargo run -p xtask -- gui stt-fixture-smoke
+VOXY_E2E_LIVE_STT=1 cargo run -p xtask -- gui stt-live-opt-in
 cargo run -p xtask -- gui visibility-toggle-flow
 cargo run -p xtask -- gui visibility-smoke
 cargo run -p xtask -- gui visibility-window-guard

@@ -53,9 +53,11 @@ You can tune live-text responsiveness with environment variables:
 - `VOXY_STT_SOURCE_POLL_MS` (default `20`): realtime uplink source polling cadence.
 - `VOXY_STT_VAD_SILENCE_MS` (default `1600`): server VAD silence window before auto-commit.
 - `VOXY_STT_RECONNECT_ENABLED` (default `true`): enable reconnect loop after retryable websocket failures.
-- `VOXY_STT_RECONNECT_MAX_RETRIES` (default `0` = unlimited): maximum reconnect retries before surfacing fatal failure.
+- `VOXY_STT_RECONNECT_MAX_RETRIES` (default `8`, set `0` for unlimited): maximum reconnect retries before surfacing fatal failure.
 - `VOXY_STT_RECONNECT_BASE_MS` (default `250`): initial reconnect backoff delay.
 - `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
+- `VOXY_STT_DOTENV_ENABLED` (default `true`): enable dotenv API key lookup.
+- `VOXY_STT_DOTENV_DIR` (default current working directory): dotenv search root for `.env` and `.env.local`.
 - `VOXY_AUDIO_FRAME_MS` (default `20`): CPAL frame duration per audio chunk.
 - `VOXY_MAX_RECORDING_SECONDS` (default `1800`): hard stop to prevent runaway recording sessions (`0` disables).
 - `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence auto-stop timeout shown in settings (`0` disables).
@@ -84,10 +86,14 @@ Run `xtask` GUI checks:
 
 ```bash
 just validate
+just validate-packaging
 # or directly:
 cargo run -p xtask -- gui smoke
 cargo run -p xtask -- gui lifecycle
+cargo run -p xtask -- gui quit-fallback
 cargo run -p xtask -- gui reset-flow
+cargo run -p xtask -- gui stt-fixture-smoke
+VOXY_E2E_LIVE_STT=1 cargo run -p xtask -- gui stt-live-opt-in
 cargo run -p xtask -- gui visibility-toggle-flow
 cargo run -p xtask -- gui visibility-smoke
 cargo run -p xtask -- gui visibility-window-guard
@@ -95,7 +101,10 @@ cargo run -p xtask -- gui visibility-window-guard
 
 - `gui smoke`: launch, verify running, SIGTERM, verify shutdown.
 - `gui lifecycle`: launch with auto-close hook and verify clean exit.
+- `gui quit-fallback`: tray-disabled close request must quit (not hide) within timeout.
 - `gui reset-flow`: inject reset event on startup, auto-close, verify clean exit.
+- `gui stt-fixture-smoke`: record/fixture/stop flow using dummy backend.
+- `gui stt-live-opt-in`: guarded OpenAI backend e2e for release validation (`VOXY_E2E_LIVE_STT=1`).
 - `gui visibility-toggle-flow`: inject visibility toggle and verify GUI remains healthy.
 - `gui visibility-smoke`: extra visibility smoke coverage.
 - `gui visibility-window-guard`: repeated visibility toggles, ensure single-window invariant.

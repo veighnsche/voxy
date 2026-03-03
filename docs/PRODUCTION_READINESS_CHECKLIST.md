@@ -1,145 +1,118 @@
 # Production Readiness Checklist
 
-Use this checklist before calling a Voxy release "production ready."
+This checklist is the launch gate for Voxy releases.
+Use it as a strict pass/fail list, not as guidance.
+Actionable P0 implementation tickets live in `docs/PRODUCTION_P0_TICKETS.md`.
 
-Production-ready means:
-- critical items are checked
-- no known data-loss or security blocker remains
-- runbook + rollback are documented and tested
+## Current Baseline (Audit Date: 2026-03-03)
 
-## Audit Snapshot (2026-03-02)
+Status: **NOT production ready**.
 
-Legend:
-- `[x]` verified in this audit pass (command output and/or code inspection)
-- `[ ]` not yet verified, failing, or not yet decided
+Highest current risks:
+- Final transcript behavior still needs reconnect-path evidence.
+- Audio failure-injection coverage is incomplete for some CPAL failure classes.
+- Crash/kill durability simulation for settings persistence is still pending.
+- Release evidence remains manual (CI links, rollback drill, owner assignment).
 
-Commands executed during this snapshot:
-- `just validate` -> passed
-- `cargo build --release -p voxy-app` -> passed
-- `cargo run -p xtask -- gui smoke` -> passed
-- `cargo run -p xtask -- gui visibility-window-guard` -> passed
-- `cargo test -p voxy-core` -> passed (`28 passed`)
-- `cargo test -p voxy-audio` -> passed (`16 passed`)
-- `cargo test -p voxy-stt` -> passed (`26 passed`)
-- `cargo test -p voxy-app` -> passed (`29 passed`)
-- `just make rpm package` -> passed
-- `rpm -qlp target/rpm/RPMS/x86_64/voxy-app-0.1.0-1.um43.x86_64.rpm` -> includes desktop file, SVG icon, metainfo
-- `HOME=$(mktemp -d) ./scripts/dev/install-desktop.sh` -> passed
+## P0: Must Pass Before Any Production Launch
 
-Artifacts produced:
-- RPM: `target/rpm/RPMS/x86_64/voxy-app-0.1.0-1.um43.x86_64.rpm`
-- Desktop install smoke (temp HOME):
-  - `.local/bin/voxy-app`
-  - `.local/share/applications/com.vince.voxy.desktop`
+### 1. User Safety and Exit Semantics
+- [x] Closing window can always exit app when tray is unavailable.
+- [x] Quit is available from UI even if status notifier fails.
+- [x] Quit path has bounded shutdown time and does not hang.
+- [ ] Required evidence: manual test matrix across tray-supported and tray-unsupported environments.
+- [ ] Code refs: `voxy-app/src/app/behavior/visibility/close_request.rs`, `voxy-app/src/app/controller/bootstrap.rs`, `voxy-app/src/tray/status_notifier.rs`.
 
-## 1. Release Scope and Ownership
+### 2. Lossless Critical Event Handling
+- [x] `QuitRequested`, `HideRequested`, `MicToggled`, and `RuntimeError` are delivered losslessly.
+- [x] Event send failures are surfaced with telemetry/logging, not silently ignored.
+- [x] Channel saturation behavior is tested under stress.
+- [x] Required evidence: saturation test + trace showing no dropped critical events.
+- [ ] Code refs: `voxy-app/src/wiring/channels.rs`, `voxy-app/src/wiring/command_bus/mod.rs`, `voxy-app/src/tray/status_notifier.rs`.
 
-- [ ] Release owner is assigned for this version.
-- [ ] Scope is frozen (features, fixes, known exclusions).
-- [ ] Known risks are documented and explicitly accepted.
-- [ ] Version/tag plan is decided (`vX.Y.Z`) for this release.
+### 3. Transcript Integrity on Stop
+- [x] Stop waits for commit + completion (or deterministic timeout path) before close.
+- [ ] Final segment is not lost during stop, disconnect, or reconnect.
+- [x] Protocol correlation uses item identifiers where applicable.
+- [ ] Required evidence: deterministic integration tests with mocked websocket server.
+- [ ] Code refs: `voxy-stt/src/realtime/client.rs`, `voxy-stt/src/realtime/event_mapper.rs`, `voxy-stt/src/realtime/protocol/server_event.rs`.
 
-## 2. Build, CI, and Quality Gates
+### 4. Audio Reliability and Error Surfacing
+- [x] Audio start/stop/read errors are never silently swallowed in production paths.
+- [x] CPAL startup/teardown has timeout and clear failure reporting.
+- [x] `VOXY_AUDIO_FRAME_MS` has strict bounded validation.
+- [x] Frame/buffer sizing math is overflow-safe.
+- [ ] Required evidence: failure-injection tests for no-device/build/play/lock failure paths.
+- [ ] Code refs: `voxy-audio/src/engine/input_engine.rs`, `voxy-audio/src/adapters/cpal/source.rs`, `voxy-audio/src/adapters/cpal/config.rs`, `voxy-audio/src/adapters/cpal/state.rs`.
 
-- [x] `just validate` passes locally.
-- [ ] CI is green on `main`.
-- [x] CI includes at least:
-  - `cargo fmt --all -- --check`
-  - `cargo check`
-  - `cargo test -p voxy-core -p voxy-audio -p voxy-stt`
-  - `cargo clippy --all-targets -- -D warnings`
-  - GUI smoke flow(s) via `xtask`
-- [x] Release build command is repeatable (`cargo build --release -p voxy-app`).
+### 5. Durable, Non-Blocking Settings Persistence
+- [x] Settings writes are off the UI event loop and debounced.
+- [x] Settings write path is atomic and crash-safe (`tmp` + rename + durability step).
+- [x] Persistence failures are visible in UI (not trace-only).
+- [ ] Required evidence: crash/kill simulation showing previous-good or new-good settings file.
+- [ ] Code refs: `voxy-app/src/app/controller/event_processing.rs`, `voxy-app/src/app/controller/settings_sync.rs`, `voxy-app/src/app/settings_store/file_store.rs`.
 
-## 3. Functional Correctness (App Flows)
+### 6. CI and Quality Gates
+- [x] CI enforces `cargo fmt --all -- --check`.
+- [x] CI enforces `cargo check --workspace`.
+- [x] CI enforces `cargo test -p voxy-core -p voxy-audio -p voxy-stt -p voxy-app`.
+- [x] CI enforces `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] CI enforces required GUI smoke/lifecycle flows via `xtask`.
+- [ ] Required evidence: green CI run link on release commit/tag.
+- [ ] Code refs: `.github/workflows/ci.yml`, `justfile`, `xtask/src/tasks/gui`.
 
-- [ ] Recording start/stop works with a real microphone.
-- [ ] Live deltas appear while recording (real STT backend).
-- [ ] Commit behavior is correct on stop (no missing final text segment).
-- [ ] User edit behavior is correct (manual edits do not corrupt committed/live merge).
-- [ ] Copy/Reset actions behave correctly in manual QA.
-- [ ] Model switching works (`gpt-4o-mini-transcribe`, `gpt-4o-transcribe`).
-- [x] Window visibility flow works (show/hide, no extra window instance).
-- [ ] Tray menu actions all work on supported environments.
+### 7. End-to-End Coverage
+- [x] Fixture-based e2e tests are implemented and run in CI.
+- [x] Live STT e2e remains opt-in but is runnable in controlled release validation.
+- [ ] Required evidence: e2e test logs attached to release evidence bundle.
+- [ ] Code refs: `tests/e2e/stt_fixture_smoke.rs`, `tests/e2e/stt_live_opt_in.rs`.
 
-## 4. Configuration and Persistence
+### 8. Release Provenance and Rollback
+- [x] Tag-triggered release workflow builds artifacts from clean checkout.
+- [x] Checksums are published for release artifacts.
+- [ ] Rollback rehearsal is executed and documented.
+- [ ] Release owner and first-48h on-call owner are assigned.
+- [ ] Required evidence: release workflow URL, checksum manifest, rollback drill notes.
+- [ ] Code refs: `RELEASE.md`, `docs/OPERATIONS.md`, `scripts/release/build-rpm.sh`.
 
-- [x] Settings persistence works across app restarts:
-  - `silence_auto_stop_seconds`
-  - `silence_gate_threshold`
-  - `vad_silence_ms`
-- [x] Settings file path behavior is implemented:
-  - `$XDG_CONFIG_HOME/voxy/settings.json`
-  - fallback `~/.config/voxy/settings.json`
-- [x] Startup behavior is validated when config file is missing, malformed, or partially populated.
-- [x] Runtime env vars are documented and validated (`docs/DEV_ENV.md` + README):
-  - `VOXY_STT_BACKEND`
-  - `VOXY_OPENAI_REALTIME_URL`
-  - `VOXY_UI_EVENT_POLL_MS`
-  - `VOXY_STT_SOURCE_POLL_MS`
-  - `VOXY_AUDIO_FRAME_MS`
-  - `VOXY_STT_VAD_SILENCE_MS`
-  - `VOXY_SILENCE_AUTO_STOP_SECONDS`
-  - `VOXY_MAX_RECORDING_SECONDS`
+## P1: Required Soon After P0 (Hardening)
 
-## 5. Security and Secrets Handling
+### 9. STT Session and Retry Hygiene
+- [x] Worker lifecycle self-recovers if background task exits unexpectedly.
+- [x] Retry strategy includes jitter and bounded defaults.
+- [x] Retryability matrix avoids retrying clearly permanent classes.
+- [x] Unknown/malformed server payloads emit diagnostics.
+- [ ] Code refs: `voxy-stt/src/realtime/client.rs`, `voxy-stt/src/realtime/backoff.rs`.
 
-- [x] API key ingestion order is implemented and matches `docs/API_KEY_INGESTION.md`.
-- [x] API keys are not rendered in UI and key values are not logged.
-- [x] Error paths reviewed for secret leakage (no key value surfaced in configured error strings).
-- [x] `.env` / `.env.local` guidance is documented for users.
-- [x] Security disclosure path is documented (`SECURITY.md`) and visible.
+### 10. Security and Secrets
+- [x] Trace output redacts sensitive URL/query/path metadata.
+- [x] Dotenv loading behavior is explicit and bounded to intended locations.
+- [x] CI includes dependency vulnerability and policy scanning.
+- [ ] Code refs: `voxy-stt/src/config.rs`, `voxy-stt/src/realtime/client.rs`, `.github/workflows/ci.yml`.
 
-## 6. Reliability and Failure Handling
+### 11. Core Domain Contract Consistency
+- [x] State transition contract is consistent between exported transition logic and reducer behavior.
+- [x] NaN/inf inputs are sanitized before gate policy comparisons.
+- [ ] Code refs: `voxy-core/src/state.rs`, `voxy-core/src/model/mod.rs`, `voxy-core/src/config.rs`, `voxy-core/src/recording_stop/mod.rs`.
 
-- [ ] Missing microphone device behavior is manually validated for clear runtime UX.
-- [x] Invalid/missing OpenAI key yields explicit runtime error messaging.
-- [x] Network disconnect behavior is defined and tested (recover or fail clearly).
-- [x] Realtime websocket error handling is tested under injected fault conditions.
-- [x] Shutdown is graceful in smoke flow (process exits cleanly after signal).
-- [ ] Long-session stability test performed (>= 30 minutes).
-- [x] Reconnect/backoff strategy is explicitly decided and applied (or removed).
+## P2: Production Maturity (Recommended)
 
-## 7. Performance and Resource Use
+### 12. Performance and Soak
+- [ ] 30+ minute soak test with real mic + network fault injection passes.
+- [ ] Idle/active CPU and memory budgets are defined and measured.
+- [ ] Audio-to-text latency SLO is defined and tracked.
 
-- [ ] Audio-to-text latency is measured and within target.
-- [ ] CPU and memory are profiled during active recording/transcription.
-- [ ] Idle CPU usage is acceptable when not recording.
-- [x] No unbounded buffer growth under sustained input.
-- [x] VAD/silence defaults are tuned for practical sentence continuity.
+### 13. Distribution and Packaging
+- [x] Packaging validation checks are automated (`desktop-file-validate`, appstream validation, install smoke).
+- [x] Release artifacts and distribution metadata are fully reviewable in source control.
 
-## 8. Observability and Diagnostics
+## Release Evidence Bundle (Attach to Every Launch)
 
-- [x] `VOXY_TRACE_PIPELINE` tracing is implemented for app/audio/stt.
-- [x] Error report copy path exists and includes actionable diagnostics context.
-- [x] Diagnostic logs reviewed to avoid direct secret value logging.
-- [x] Support workflow is documented (how to collect traces/logs and where to file reports).
-
-## 9. Platform and Packaging Readiness
-
-- [x] Desktop launch/install path verified (`scripts/dev/install-desktop.sh`) for this release.
-- [x] RPM build path verified (`scripts/release/build-rpm.sh`) for this release.
-- [x] Publishing tasks are tracked via `docs/PUBLISHING.md`.
-- [x] App metadata/assets are complete for target channels (desktop file, icons, appstream).
-
-## 10. Operations (Runbook + Rollback)
-
-- [x] Release runbook exists (`RELEASE.md`).
-- [x] Rollback procedure is documented.
-- [ ] Rollback procedure is tested.
-- [x] Known issue triage workflow is documented.
-- [ ] Ownership for post-release monitoring window is assigned.
-
-## 11. Launch Decision
-
-- [ ] All critical blockers are closed.
-- [ ] Remaining non-critical issues are explicitly deferred with owners/dates.
-- [ ] Final go/no-go sign-off recorded.
-
-## Evidence to Attach per Release
-
-- [ ] CI run link.
-- [x] `just validate` output summary captured.
-- [ ] Manual test notes for recording/transcription flows.
-- [x] Packaging artifact references (RPM / installers / release bundle).
-- [ ] Release notes + changelog link.
+- [ ] Commit/tag being released.
+- [ ] CI run URL for all mandatory gates.
+- [ ] Manual QA notes (real microphone + real STT backend).
+- [ ] e2e output (fixture mandatory, live opt-in if run).
+- [ ] Artifact list + checksums.
+- [ ] Rollback target and rollback drill date.
+- [ ] Known issues with owner and target fix date.
+- [ ] Explicit go/no-go sign-off (name + timestamp).

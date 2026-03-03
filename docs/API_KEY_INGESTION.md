@@ -9,12 +9,11 @@ Runtime callers use `voxy-stt::config::load_api_key()`.
 1. `VOXY_OPENAI_API_KEY`
 2. `VOXY_OPENAI_API_KEY_FILE` (file contents, trimmed)
 3. `OPENAI_API_KEY`
-4. `.env`
-5. `.env.local` (overrides `.env`)
+4. `.env` / `.env.local` (in `VOXY_STT_DOTENV_DIR` or current working directory)
 
 Supported keys in dotenv files:
 - `VOXY_OPENAI_API_KEY`
-- `VOXY_OPENAI_API_KEY_FILE` (relative paths resolve from the dotenv file directory)
+- `VOXY_OPENAI_API_KEY_FILE` (must be a relative path that stays within the dotenv directory)
 - `OPENAI_API_KEY`
 
 ## Rules
@@ -22,6 +21,7 @@ Supported keys in dotenv files:
 - `voxy-app` UI must not read or display raw API keys.
 - Missing key must surface as an explicit runtime error event.
 - Never print key material in logs.
+- Dotenv loading must be explicitly controllable (`VOXY_STT_DOTENV_ENABLED`).
 
 ## Failure Modes
 - Missing env/file: return `MissingApiKey`.
