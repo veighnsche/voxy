@@ -99,6 +99,10 @@ impl CaptureBuffer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use crate::AudioError;
+
     use super::CaptureBuffer;
 
     #[test]
@@ -119,5 +123,39 @@ mod tests {
         assert_eq!(frame.sample_rate_hz, 16_000);
         assert_eq!(frame.channels, 1);
         assert_eq!(frame.samples_i16.len(), 320);
+    }
+
+    #[test]
+    fn push_reports_lock_poison() {
+        let buffer = Arc::new(CaptureBuffer::new(16_000, 1).expect("buffer should be created"));
+        let poisoned = Arc::clone(&buffer);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.queue.lock().expect("queue lock should succeed");
+            panic!("intentional poison");
+        })
+        .join();
+
+        let result = buffer.push_i16_samples(&[1, 2, 3]);
+        assert!(matches!(
+            result,
+            Err(AudioError::LockPoisoned("cpal::capture_buffer"))
+        ));
+    }
+
+    #[test]
+    fn pop_reports_lock_poison() {
+        let buffer = Arc::new(CaptureBuffer::new(16_000, 1).expect("buffer should be created"));
+        let poisoned = Arc::clone(&buffer);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.queue.lock().expect("queue lock should succeed");
+            panic!("intentional poison");
+        })
+        .join();
+
+        let result = buffer.pop_frame();
+        assert!(matches!(
+            result,
+            Err(AudioError::LockPoisoned("cpal::capture_buffer"))
+        ));
     }
 }

@@ -10,7 +10,6 @@ Status: **NOT production ready**.
 
 Highest current risks:
 - Reconnect-path transcript evidence is unit-level; full mocked-websocket reconnect integration is still pending.
-- Audio failure-injection coverage is incomplete for some CPAL failure classes.
 - Crash/kill durability simulation for settings persistence is still pending.
 - Release evidence remains manual (CI links, rollback drill, owner assignment).
 
@@ -42,7 +41,7 @@ Highest current risks:
 - [x] CPAL startup/teardown has timeout and clear failure reporting.
 - [x] `VOXY_AUDIO_FRAME_MS` has strict bounded validation.
 - [x] Frame/buffer sizing math is overflow-safe.
-- [ ] Required evidence: failure-injection tests for no-device/build/play/lock failure paths.
+- [x] Required evidence: failure-injection tests for no-device/build/play/lock failure paths.
 - [ ] Code refs: `voxy-audio/src/engine/input_engine.rs`, `voxy-audio/src/adapters/cpal/source.rs`, `voxy-audio/src/adapters/cpal/config.rs`, `voxy-audio/src/adapters/cpal/state.rs`.
 
 ### 5. Durable, Non-Blocking Settings Persistence

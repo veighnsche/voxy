@@ -50,7 +50,7 @@ Prevent final transcript loss during stop and shutdown.
 - Remaining gap: full mocked-websocket reconnect scenario coverage.
 
 ## VOXY-P0-004: Audio Failure Surface and Bounds Safety
-Status: `partially implemented`; fault-injection coverage pending.
+Status: `implemented in code/tests`.
 
 ### Goal
 Eliminate silent audio failures and unsafe frame-size configuration.
@@ -62,7 +62,7 @@ Eliminate silent audio failures and unsafe frame-size configuration.
 - Frame and buffer sizing use overflow-safe arithmetic with explicit error handling.
 
 ### Verification
-- Unit/integration tests for no-input-device, build/play failure, lock poison, and bad env inputs.
+- Unit/integration tests cover no-input-device, build/play failure, startup timeout/disconnect mapping, lock poison, and bad env inputs.
 - Manual run with invalid config confirms explicit runtime errors.
 
 ## VOXY-P0-005: Atomic and Non-Blocking Settings Persistence
