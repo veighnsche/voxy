@@ -537,6 +537,35 @@ async fn stop_pending_ignores_benign_empty_buffer_commit_error() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn stop_pending_ignores_benign_empty_buffer_commit_error_variant() {
+    let (event_tx, mut event_rx) = mpsc::channel(8);
+    let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);
+
+    let payload = json!({
+        "type": "error",
+        "error": {
+            "message": "Error committing input audio buffer: buffer too small. Expected at least 80ms of audio, but buffer only has no audio."
+        }
+    })
+    .to_string();
+
+    let parsed = handle_server_payload(&event_tx, &downlink_tx, &payload, true, None).await;
+    assert!(matches!(parsed, Some(ServerEvent::Error { .. })));
+    assert!(
+        time::timeout(Duration::from_millis(120), event_rx.recv())
+            .await
+            .is_err(),
+        "benign stop-commit empty-buffer variants should not emit AppEvent::RuntimeError"
+    );
+    assert!(
+        time::timeout(Duration::from_millis(120), downlink_rx.recv())
+            .await
+            .is_err(),
+        "benign stop-commit empty-buffer variants should not emit downlink errors"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn non_stop_error_payload_still_surfaces_runtime_error() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
     let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);

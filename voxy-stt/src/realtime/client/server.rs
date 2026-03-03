@@ -129,6 +129,6 @@ fn is_benign_stop_commit_empty_buffer_error(event: &ServerEvent) -> bool {
     let normalized = message.trim().to_ascii_lowercase();
     normalized.contains("error committing input audio buffer")
         && normalized.contains("buffer too small")
-        && normalized.contains("expected at least 100ms of audio")
-        && (normalized.contains("0.00ms") || normalized.contains(" 0ms"))
+        && normalized.contains("expected at least")
+        && normalized.contains("buffer only has")
 }
