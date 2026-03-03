@@ -25,8 +25,8 @@ jobs:
             pkg-config \
             libgtk-4-dev \
             libgraphene-1.0-dev \
-            libgtk4-layer-shell-dev \
             libasound2-dev
+          ./scripts/dev/install-gtk4-layer-shell.sh
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

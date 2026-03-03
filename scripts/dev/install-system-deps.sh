@@ -27,8 +27,8 @@ if [[ "$id" =~ (ubuntu|debian|linuxmint|pop) || "$like" =~ debian ]]; then
     pkg-config \
     libgtk-4-dev \
     libgraphene-1.0-dev \
-    libgtk4-layer-shell-dev \
     libasound2-dev
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-gtk4-layer-shell.sh"
   exit 0
 fi
 
