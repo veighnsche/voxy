@@ -2022,7 +2022,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voxy-app"
-version = "0.1.0"
+version = "1.0.0-RC1"
 dependencies = [
  "gtk4",
  "gtk4-layer-shell",
@@ -2038,7 +2038,7 @@ dependencies = [
 
 [[package]]
 name = "voxy-audio"
-version = "0.1.0"
+version = "1.0.0-RC1"
 dependencies = [
  "cpal",
  "minimp3",
@@ -2047,11 +2047,11 @@ dependencies = [
 
 [[package]]
 name = "voxy-core"
-version = "0.1.0"
+version = "1.0.0-RC1"
 
 [[package]]
 name = "voxy-stt"
-version = "0.1.0"
+version = "1.0.0-RC1"
 dependencies = [
  "base64",
  "futures-util",
@@ -2612,7 +2612,7 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "1.0.0-RC1"
 dependencies = [
  "anyhow",
  "clap",
