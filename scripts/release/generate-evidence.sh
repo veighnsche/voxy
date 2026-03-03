@@ -15,8 +15,12 @@ output_dir="${repo_root}/docs/release-evidence"
 output_path="${output_dir}/${tag}.md"
 
 release_commit="$(git rev-parse HEAD)"
+has_tag_commit=0
 if git rev-parse --verify "${tag}^{commit}" >/dev/null 2>&1; then
+  has_tag_commit=1
   release_commit="$(git rev-list -n 1 "${tag}")"
+else
+  release_commit=""
 fi
 
 last_known_good_tag="$(
@@ -31,7 +35,7 @@ ci_checks_url=""
 security_scan_url=""
 release_workflow_url=""
 
-if command -v gh >/dev/null 2>&1; then
+if [[ "${has_tag_commit}" == "1" ]] && command -v gh >/dev/null 2>&1; then
   ci_checks_url="$(
     gh run list \
       --workflow "CI" \

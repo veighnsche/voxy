@@ -7,7 +7,7 @@ Voxy is a GTK4 Rust desktop app for live microphone transcription into an editab
 
 ## Project Status
 
-Pre-alpha. The app is usable for local live transcription workflows, but APIs and UX may still change quickly.
+Release candidate preparation (`1.0.0-RC2`) is in progress. Use pre-release builds for testing while release evidence and publishing gates are being finalized.
 
 ## Current Features
 
@@ -42,7 +42,7 @@ Pre-alpha. The app is usable for local live transcription workflows, but APIs an
   - Size + / Size -
   - Quit
 - Window behavior:
-  - close button and window close request hide instead of exit
+  - close request hides to tray when tray is available, and exits when tray is unavailable
   - drag surface at top
   - bottom-right resize handle
   - layer-shell placement on supported Wayland compositors
@@ -68,7 +68,9 @@ Example Linux dependencies:
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libgtk4-layer-shell-dev libasound2-dev
+# gtk4-layer-shell is handled by `just deps` (package when available,
+# source-build fallback when the distro package is missing).
+sudo apt-get install -y pkg-config libgtk-4-dev libgraphene-1.0-dev libasound2-dev
 
 # Fedora
 sudo dnf install -y pkgconf-pkg-config gtk4-devel graphene-devel gtk4-layer-shell-devel alsa-lib-devel

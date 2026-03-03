@@ -13,7 +13,7 @@ Already present:
 - [x] MIT license: `LICENSE`
 - [x] Changelog: `CHANGELOG.md`
 - [x] Basic release checklist: `RELEASE.md`
-- [x] CI checks for format/check/test/core + `voxy-app` check: `.github/workflows/ci.yml`
+- [x] CI checks for format/check/test/clippy + GUI `xtask` flows + security scan: `.github/workflows/ci.yml`
 - [x] Local RPM build script: `scripts/release/build-rpm.sh`
 - [x] Canonical release screenshots tracked in-repo (`assets/screenshots/{idle,recording,config}.png`)
 
@@ -40,14 +40,14 @@ Missing for marketplace publishing:
 ## 3. Common Release Gate (Run Every Release)
 
 - [ ] Update `CHANGELOG.md` for the release.
-- [ ] Ensure version/tag consistency.
+- [ ] Ensure version/tag consistency (`just release-preflight version=<X.Y.Z[-RCN]>`).
 - [ ] Run validation locally:
-  - `cargo fmt --all -- --check`
-  - `cargo check`
-  - `cargo test -p voxy-core -p voxy-audio -p voxy-stt`
-  - `cargo check -p voxy-app`
+  - `just validate`
+  - `just validate-packaging-strict`
+  - `cargo build --release -p voxy-app`
 - [ ] Confirm CI green on `main`.
 - [ ] Create and push signed tag `vX.Y.Z`.
+- [ ] Generate + complete release evidence (`just release-evidence version=<X.Y.Z[-RCN]>`).
 - [ ] Draft GitHub release notes.
 
 ## 4. Metadata and Desktop Integration (Required Before Stores)
