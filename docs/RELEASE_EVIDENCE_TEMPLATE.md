@@ -26,6 +26,10 @@ Copy this template into release notes (or issue tracker) for every production la
 ## Artifact Integrity
 
 - Artifact list:
+  - `voxy-app-<version>-linux-x86_64.tar.gz`
+  - `screenshots/idle.png`
+  - `screenshots/recording.png`
+  - `screenshots/config.png`
 - SHA256SUMS reference:
 - Local checksum verification result:
 

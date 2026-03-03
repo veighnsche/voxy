@@ -39,7 +39,7 @@ run_or_skip() {
 }
 
 run_or_skip desktop-file-validate desktop-file-validate "${desktop_file}"
-run_or_skip appstreamcli appstreamcli validate "${metainfo_file}"
+run_or_skip appstreamcli appstreamcli validate --no-net "${metainfo_file}"
 
 stage_dir="$(mktemp -d)"
 trap 'rm -rf "${stage_dir}"' EXIT

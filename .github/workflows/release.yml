@@ -47,11 +47,24 @@ jobs:
           mkdir -p dist
           cp target/release/voxy-app dist/voxy-app
           tar -C dist -czf "dist/voxy-app-${VERSION}-linux-x86_64.tar.gz" voxy-app
-          sha256sum "dist/voxy-app-${VERSION}-linux-x86_64.tar.gz" > "dist/SHA256SUMS.txt"
+          mkdir -p dist/screenshots
+          cp assets/screenshots/idle.png dist/screenshots/idle.png
+          cp assets/screenshots/recording.png dist/screenshots/recording.png
+          cp assets/screenshots/config.png dist/screenshots/config.png
+          (
+            cd dist
+            sha256sum \
+              "voxy-app-${VERSION}-linux-x86_64.tar.gz" \
+              "screenshots/idle.png" \
+              "screenshots/recording.png" \
+              "screenshots/config.png" \
+              > "SHA256SUMS.txt"
+          )
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/voxy-app-*-linux-x86_64.tar.gz
+            dist/screenshots/*.png
             dist/SHA256SUMS.txt

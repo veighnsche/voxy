@@ -22,6 +22,9 @@ For support/triage/rollback operations, use:
 6. Create and push a signed tag: `vX.Y.Z`.
 7. Confirm `Release` workflow completed for the tag and uploaded:
    - `voxy-app-<version>-linux-x86_64.tar.gz`
+   - `screenshots/idle.png`
+   - `screenshots/recording.png`
+   - `screenshots/config.png`
    - `SHA256SUMS.txt`
 8. Verify checksum locally:
    - `sha256sum -c SHA256SUMS.txt`

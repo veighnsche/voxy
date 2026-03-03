@@ -18,5 +18,19 @@
     <category>AudioVideo</category>
     <category>Utility</category>
   </categories>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Idle state</caption>
+      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/idle.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Recording state</caption>
+      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/recording.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings pane</caption>
+      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/config.png</image>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1" />
 </component>
