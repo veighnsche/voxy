@@ -30,7 +30,7 @@ Adjust owner/project/chroots as needed.
 The repo includes a maintained spec file at `packaging/rpm/voxy-app.spec`.
 
 ```bash
-just rpm-srpm ref=v1.0.0-RC1
+just rpm-srpm ref=v1.0.0-RC2
 ```
 
 This writes an SRPM under `target/rpm-srpm/SRPMS/`.
@@ -38,7 +38,7 @@ This writes an SRPM under `target/rpm-srpm/SRPMS/`.
 ## 3. Submit build to COPR
 
 ```bash
-just copr-build veighnsche/voxy v1.0.0-RC1
+just copr-build veighnsche/voxy v1.0.0-RC2
 ```
 
 Equivalent manual command:
@@ -59,5 +59,5 @@ sudo dnf install -y voxy-app
 ## Notes
 
 - COPR builds are source-based; release tags should be immutable.
-- For pre-release tags like `1.0.0-RC1`, RPM version is normalized to `1.0.0~RC1` in SRPM metadata.
+- For pre-release tags like `1.0.0-RC2`, RPM version is normalized to `1.0.0~RC2` in SRPM metadata.
 - Runtime behavior still depends on platform tray/compositor capabilities.
