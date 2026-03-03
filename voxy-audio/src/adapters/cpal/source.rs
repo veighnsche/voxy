@@ -14,6 +14,8 @@ use crate::{
     trace, AudioError, AudioFrameSource, PcmFrame,
 };
 
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Clone)]
 pub struct CpalFrameSource {
     inner: Arc<CpalSourceInner>,
@@ -49,7 +51,7 @@ impl CpalFrameSource {
                     let sample_rate_hz = stream_config.sample_rate.0;
                     let channels = stream_config.channels;
 
-                    let buffer = Arc::new(CaptureBuffer::new(sample_rate_hz, channels));
+                    let buffer = Arc::new(CaptureBuffer::new(sample_rate_hz, channels)?);
                     let on_error = |error| {
                         trace::log("cpal", format!("input stream error={error}"));
                     };
@@ -111,8 +113,13 @@ impl CpalFrameSource {
             .map_err(AudioError::CpalThreadSpawn)?;
 
         let buffer = startup_rx
-            .recv()
-            .map_err(|_| AudioError::CpalThreadStartup)??;
+            .recv_timeout(STARTUP_TIMEOUT)
+            .map_err(|error| match error {
+                RecvTimeoutError::Timeout => AudioError::CpalThreadStartupTimeout {
+                    timeout_ms: STARTUP_TIMEOUT.as_millis() as u64,
+                },
+                RecvTimeoutError::Disconnected => AudioError::CpalThreadStartup,
+            })??;
 
         Ok(Self {
             inner: Arc::new(CpalSourceInner {
@@ -134,7 +141,11 @@ impl AudioFrameSource for CpalFrameSource {
     }
 
     fn read_frame(&self) -> Option<PcmFrame> {
-        self.inner.buffer.pop_frame().ok().flatten()
+        self.read_frame_checked().ok().flatten()
+    }
+
+    fn read_frame_checked(&self) -> Result<Option<PcmFrame>, AudioError> {
+        self.inner.buffer.pop_frame()
     }
 }
 
@@ -154,7 +165,11 @@ impl Drop for CpalSourceInner {
         }
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(handle) = worker.take() {
-                let _ = handle.join();
+                let _ = std::thread::Builder::new()
+                    .name("voxy-cpal-capture-join".to_owned())
+                    .spawn(move || {
+                        let _ = handle.join();
+                    });
             }
         }
     }

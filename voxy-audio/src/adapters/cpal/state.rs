@@ -16,16 +16,28 @@ pub struct CaptureBuffer {
 }
 
 impl CaptureBuffer {
-    pub fn new(sample_rate_hz: u32, channels: u16) -> Self {
-        let frame_samples = frame_samples(sample_rate_hz, channels, frame_ms());
-        let max_samples = frame_samples * DEFAULT_MAX_BUFFER_FRAMES;
-        Self {
+    pub fn new(sample_rate_hz: u32, channels: u16) -> Result<Self, AudioError> {
+        let frame_ms = frame_ms();
+        let frame_samples = frame_samples(sample_rate_hz, channels, frame_ms).ok_or(
+            AudioError::InvalidFrameConfig {
+                frame_ms,
+                sample_rate_hz,
+                channels,
+            },
+        )?;
+        let max_samples = frame_samples.checked_mul(DEFAULT_MAX_BUFFER_FRAMES).ok_or(
+            AudioError::FrameBufferOverflow {
+                frame_samples,
+                max_frames: DEFAULT_MAX_BUFFER_FRAMES,
+            },
+        )?;
+        Ok(Self {
             sample_rate_hz,
             channels,
             frame_samples,
             max_samples,
             queue: Mutex::new(VecDeque::new()),
-        }
+        })
     }
 
     pub fn sample_rate_hz(&self) -> u32 {
@@ -91,7 +103,7 @@ mod tests {
 
     #[test]
     fn capture_buffer_emits_frames_when_enough_samples_arrive() {
-        let buffer = CaptureBuffer::new(16_000, 1);
+        let buffer = CaptureBuffer::new(16_000, 1).expect("buffer should be created");
         // 20ms @ 16k mono = 320 samples.
         let half = vec![0i16; 160];
         let full = vec![1i16; 160];

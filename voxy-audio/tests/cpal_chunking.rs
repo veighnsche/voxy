@@ -2,7 +2,7 @@ use voxy_audio::adapters::cpal::state::CaptureBuffer;
 
 #[test]
 fn capture_buffer_outputs_20ms_frames_for_16k_mono() {
-    let buffer = CaptureBuffer::new(16_000, 1);
+    let buffer = CaptureBuffer::new(16_000, 1).expect("buffer should initialize");
 
     // 20ms @ 16k mono => 320 samples per frame
     let first_half = vec![7i16; 160];
@@ -28,7 +28,7 @@ fn capture_buffer_outputs_20ms_frames_for_16k_mono() {
 
 #[test]
 fn capture_buffer_outputs_20ms_frames_for_48k_stereo() {
-    let buffer = CaptureBuffer::new(48_000, 2);
+    let buffer = CaptureBuffer::new(48_000, 2).expect("buffer should initialize");
 
     // 20ms @ 48k stereo => 1920 interleaved samples
     let mut samples = Vec::with_capacity(1_920);

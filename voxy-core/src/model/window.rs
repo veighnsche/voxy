@@ -1,6 +1,6 @@
 use super::{CoreCommand, CoreModel};
 
-pub(super) const WINDOW_RESIZE_STEP: i32 = 40;
+const WINDOW_RESIZE_STEP: i32 = 40;
 pub(super) const WINDOW_MIN_WIDTH: i32 = 280;
 pub(super) const WINDOW_MIN_HEIGHT: i32 = 320;
 pub(super) const WINDOW_MAX_WIDTH: i32 = 960;

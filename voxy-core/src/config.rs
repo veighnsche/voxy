@@ -15,6 +15,9 @@ pub fn clamp_vad_silence_duration_ms(ms: u32) -> u32 {
 }
 
 pub fn clamp_silence_gate_threshold(threshold: f32) -> f32 {
+    if !threshold.is_finite() {
+        return DEFAULT_SILENCE_GATE_THRESHOLD;
+    }
     threshold.clamp(0.0, 1.0)
 }
 
@@ -44,7 +47,8 @@ mod tests {
         clamp_silence_auto_stop_seconds, clamp_silence_gate_threshold,
         clamp_vad_silence_duration_ms, parse_max_recording_seconds,
         parse_silence_auto_stop_seconds, parse_vad_silence_ms, DEFAULT_MAX_RECORDING_SECONDS,
-        DEFAULT_SILENCE_AUTO_STOP_SECONDS, DEFAULT_VAD_SILENCE_DURATION_MS,
+        DEFAULT_SILENCE_AUTO_STOP_SECONDS, DEFAULT_SILENCE_GATE_THRESHOLD,
+        DEFAULT_VAD_SILENCE_DURATION_MS,
     };
 
     #[test]
@@ -106,5 +110,13 @@ mod tests {
         assert_eq!(clamp_vad_silence_duration_ms(9_000), 5_000);
         assert_eq!(clamp_silence_gate_threshold(-2.0), 0.0);
         assert_eq!(clamp_silence_gate_threshold(2.0), 1.0);
+        assert_eq!(
+            clamp_silence_gate_threshold(f32::NAN),
+            DEFAULT_SILENCE_GATE_THRESHOLD
+        );
+        assert_eq!(
+            clamp_silence_gate_threshold(f32::INFINITY),
+            DEFAULT_SILENCE_GATE_THRESHOLD
+        );
     }
 }

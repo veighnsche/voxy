@@ -232,7 +232,10 @@ impl InputEngine {
             .source
             .lock()
             .map_err(|_| AudioError::LockPoisoned("input_engine::source"))?;
-        let mut frame = source.as_ref().and_then(|source| source.read_frame());
+        let mut frame = match source.as_ref() {
+            Some(source) => source.read_frame_checked()?,
+            None => None,
+        };
         let seq = READ_FRAME_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
         if let Some(frame) = frame.as_mut() {
             self.mix_injected_samples(frame, seq)?;
@@ -409,7 +412,7 @@ fn convert_mp3_frame(
     target_sample_rate_hz: u32,
     target_channels: u16,
 ) -> Vec<i16> {
-    if frame.sample_rate <= 0 || frame.channels <= 0 || frame.data.is_empty() {
+    if frame.sample_rate <= 0 || frame.channels == 0 || frame.data.is_empty() {
         return Vec::new();
     }
 
@@ -480,7 +483,7 @@ fn convert_channels_interleaved(
         let source_frame = &samples[source_frame_offset..source_frame_offset + source_channels];
 
         match (source_channels, target_channels) {
-            (1, n) => output.extend(std::iter::repeat_n(source_frame[0], n)),
+            (1, n) => output.extend(std::iter::repeat(source_frame[0]).take(n)),
             (n, 1) if n > 1 => {
                 let sum: i32 = source_frame.iter().map(|sample| *sample as i32).sum();
                 output.push((sum / n as i32) as i16);
@@ -515,11 +518,15 @@ fn workspace_root() -> PathBuf {
 
 impl AudioInput for InputEngine {
     fn start(&self) {
-        let _ = self.start_checked();
+        if let Err(error) = self.start_checked() {
+            trace::log("start", format!("start failed: {error}"));
+        }
     }
 
     fn stop(&self) {
-        let _ = self.stop_checked();
+        if let Err(error) = self.stop_checked() {
+            trace::log("stop", format!("stop failed: {error}"));
+        }
     }
 
     fn set_route(&self, route: AudioRoute) -> Result<(), AudioError> {
@@ -533,22 +540,41 @@ impl AudioInput for InputEngine {
 
 impl AudioFrameSource for InputEngine {
     fn sample_rate_hz(&self) -> u32 {
-        self.source
-            .lock()
-            .ok()
-            .and_then(|source| source.as_ref().map(|source| source.sample_rate_hz()))
-            .unwrap_or(16_000)
+        match self.source.lock() {
+            Ok(source) => source
+                .as_ref()
+                .map(|source| source.sample_rate_hz())
+                .unwrap_or(16_000),
+            Err(_) => {
+                trace::log(
+                    "frame",
+                    "failed to lock input source for sample_rate_hz; falling back to 16000",
+                );
+                16_000
+            }
+        }
     }
 
     fn channels(&self) -> u16 {
-        self.source
-            .lock()
-            .ok()
-            .and_then(|source| source.as_ref().map(|source| source.channels()))
-            .unwrap_or(1)
+        match self.source.lock() {
+            Ok(source) => source.as_ref().map(|source| source.channels()).unwrap_or(1),
+            Err(_) => {
+                trace::log(
+                    "frame",
+                    "failed to lock input source for channels; falling back to mono",
+                );
+                1
+            }
+        }
     }
 
     fn read_frame(&self) -> Option<PcmFrame> {
-        self.read_next_frame().ok().flatten()
+        match self.read_next_frame() {
+            Ok(frame) => frame,
+            Err(error) => {
+                trace::log("frame", format!("read_next_frame failed: {error}"));
+                None
+            }
+        }
     }
 }

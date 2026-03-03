@@ -1,10 +1,5 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AudioRoute {
+    #[default]
     Microphone,
-}
-
-impl Default for AudioRoute {
-    fn default() -> Self {
-        Self::Microphone
-    }
 }

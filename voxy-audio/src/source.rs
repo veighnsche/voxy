@@ -17,4 +17,8 @@ pub trait AudioFrameSource: Send + Sync {
     fn sample_rate_hz(&self) -> u32;
     fn channels(&self) -> u16;
     fn read_frame(&self) -> Option<PcmFrame>;
+
+    fn read_frame_checked(&self) -> Result<Option<PcmFrame>, AudioError> {
+        Ok(self.read_frame())
+    }
 }
