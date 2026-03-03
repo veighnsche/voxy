@@ -66,7 +66,7 @@ rpm_release="${VOXY_RPM_RELEASE:-1}"
 
 rpm_topdir="${repo_root}/target/rpm-srpm"
 spec_path="${rpm_topdir}/SPECS/${package_name}.spec"
-tarball="${rpm_topdir}/SOURCES/${package_name}-${upstream_version}.tar.gz"
+tarball="${rpm_topdir}/SOURCES/${package_name}-${rpm_version}.tar.gz"
 
 echo "Preparing SRPM layout..."
 rm -rf "${rpm_topdir}"
@@ -81,7 +81,7 @@ mkdir -p \
 echo "Creating source tarball from ref '${ref}'..."
 git archive \
   --format=tar \
-  --prefix="${package_name}-${upstream_version}/" \
+  --prefix="${package_name}-${rpm_version}/" \
   "${ref}" | gzip -n > "${tarball}"
 
 cp "${spec_src}" "${spec_path}"
@@ -89,7 +89,6 @@ cp "${spec_src}" "${spec_path}"
 echo "Building SRPM (Version=${rpm_version}, Release=${rpm_release})..."
 rpmbuild -bs "${spec_path}" \
   --define "_topdir ${rpm_topdir}" \
-  --define "voxy_upstream_version ${upstream_version}" \
   --define "pkg_version ${rpm_version}" \
   --define "pkg_release ${rpm_release}" \
   >/dev/null

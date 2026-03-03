@@ -6,7 +6,7 @@ Release:        %{!?pkg_release:1}%{?pkg_release}%{?dist}
 Summary:        Wayland-native GTK4 app for live transcription
 License:        MIT
 URL:            https://github.com/veighnsche/voxy
-Source0:        %{name}-%{?voxy_upstream_version}%{!?voxy_upstream_version:%{version}}.tar.gz
+Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  appstream
 BuildRequires:  cargo
@@ -22,7 +22,7 @@ Voxy is a Wayland-native GTK4 Rust app for live streaming speech-to-text
 into an editable text area.
 
 %prep
-%autosetup -n %{name}-%{?voxy_upstream_version}%{!?voxy_upstream_version:%{version}}
+%autosetup -n %{name}-%{version}
 
 %build
 cargo build --release --locked -p voxy-app
