@@ -177,6 +177,20 @@ just validate
 just validate-packaging-strict
 ```
 
+## Screenshots
+
+Idle:
+
+![Voxy idle state](assets/screenshots/idle.png)
+
+Recording:
+
+![Voxy recording state](assets/screenshots/recording.png)
+
+Settings:
+
+![Voxy settings pane](assets/screenshots/config.png)
+
 Or run GUI tasks directly:
 
 ```bash
@@ -203,6 +217,7 @@ cargo run -p xtask -- gui drag-math-sim
 - [Realtime Event Map](docs/REALTIME_EVENT_MAP.md)
 - [Production Readiness Checklist](docs/PRODUCTION_READINESS_CHECKLIST.md)
 - [Operations Guide](docs/OPERATIONS.md)
+- [COPR Publishing](docs/COPR.md)
 - [Roadmap](docs/ROADMAP.md)
 
 ## Contributing and Governance

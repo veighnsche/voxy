@@ -21,15 +21,15 @@
   <screenshots>
     <screenshot type="default">
       <caption>Idle state</caption>
-      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/idle.png</image>
+      <image type="source" width="588" height="442">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/idle.png</image>
     </screenshot>
     <screenshot>
       <caption>Recording state</caption>
-      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/recording.png</image>
+      <image type="source" width="588" height="442">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/recording.png</image>
     </screenshot>
     <screenshot>
       <caption>Settings pane</caption>
-      <image type="source">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/config.png</image>
+      <image type="source" width="581" height="433">https://raw.githubusercontent.com/veighnsche/voxy/main/assets/screenshots/config.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1" />
