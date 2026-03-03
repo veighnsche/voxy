@@ -16,6 +16,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Verify release metadata consistency
+        run: |
+          ./scripts/release/verify-version-sync.sh "${GITHUB_REF_NAME}"
+          ./scripts/release/verify-changelog-entry.sh "${GITHUB_REF_NAME}"
+
       - name: Install GTK dependencies
         run: |
           SUDO=""

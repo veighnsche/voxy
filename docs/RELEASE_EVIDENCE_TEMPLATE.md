@@ -1,6 +1,8 @@
 # Release Evidence Template
 
 Copy this template into release notes (or issue tracker) for every production launch.
+For a pre-filled scaffold, run:
+- `just release-evidence version=<X.Y.Z[-RCN]>`
 
 ## Release Identity
 

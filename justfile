@@ -44,6 +44,35 @@ copr-build project ref="HEAD":
     ref_name="${ref_name#ref=}"
     exec ./scripts/release/copr-build.sh "${project_name}" "${ref_name}"
 
+release-preflight version date="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version_value="{{version}}"
+    version_value="${version_value#version=}"
+    if [[ -z "${version_value}" ]]; then
+      echo "Usage: just release-preflight version=<X.Y.Z[-RCN]>" >&2
+      exit 1
+    fi
+    date_value="{{date}}"
+    date_value="${date_value#date=}"
+    ./scripts/release/verify-version-sync.sh "${version_value}"
+    if [[ -n "${date_value}" ]]; then
+      ./scripts/release/verify-changelog-entry.sh "${version_value}" "${date_value}"
+    else
+      ./scripts/release/verify-changelog-entry.sh "${version_value}"
+    fi
+
+release-evidence version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version_value="{{version}}"
+    version_value="${version_value#version=}"
+    if [[ -z "${version_value}" ]]; then
+      echo "Usage: just release-evidence version=<X.Y.Z[-RCN]>" >&2
+      exit 1
+    fi
+    exec ./scripts/release/generate-evidence.sh "${version_value}"
+
 validate: doctor
     cargo fmt --all -- --check
     cargo check --workspace
