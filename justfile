@@ -34,6 +34,23 @@ make target action:
 rpm-package:
     ./scripts/release/build-rpm.sh
 
+rpm-package-signed:
+    VOXY_RPM_SIGN=1 ./scripts/release/build-rpm.sh
+
+rpm-sign path="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rpm_path="{{path}}"
+    rpm_path="${rpm_path#path=}"
+    if [[ -z "${rpm_path}" ]]; then
+      rpm_path="$(find target/rpm/RPMS -type f -name '*.rpm' | sort | tail -n 1)"
+    fi
+    if [[ -z "${rpm_path}" ]]; then
+      echo "No RPM found. Build one first: just rpm-package" >&2
+      exit 1
+    fi
+    exec ./scripts/release/sign-rpm.sh "${rpm_path}"
+
 rpm-srpm ref="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail

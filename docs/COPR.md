@@ -75,3 +75,24 @@ sudo dnf install -y voxy-app
 - COPR builds are source-based; release tags should be immutable.
 - For pre-release tags like `1.0.0-RC2`, RPM version is normalized to `1.0.0~RC2` in SRPM metadata.
 - Runtime behavior still depends on platform tray/compositor capabilities.
+
+## Local RPM Signature (Optional but Recommended)
+
+To sign locally built RPMs before sharing:
+
+```bash
+sudo dnf install -y rpm-sign
+VOXY_RPM_GPG_KEY=678C0FB8FAA0489A just rpm-sign
+```
+
+Or build + sign in one step:
+
+```bash
+VOXY_RPM_GPG_KEY=678C0FB8FAA0489A just rpm-package-signed
+```
+
+Verify signature material:
+
+```bash
+rpm -Kv target/rpm/RPMS/x86_64/voxy-app-*.rpm
+```

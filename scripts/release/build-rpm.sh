@@ -23,6 +23,7 @@ release="${VOXY_RPM_RELEASE:-1}"
 packager="${VOXY_RPM_PACKAGER:-Voxy Maintainers <noreply@voxy.local>}"
 desktop_src="${repo_root}/packaging/linux/${app_id}.desktop"
 metainfo_src="${repo_root}/packaging/linux/${app_id}.metainfo.xml"
+sign_rpm="${VOXY_RPM_SIGN:-0}"
 
 pkgid="$(cargo pkgid -p voxy-app)"
 version="${pkgid##*#}"
@@ -129,3 +130,8 @@ if [[ -z "${rpm_path}" ]]; then
 fi
 
 echo "RPM package created: ${rpm_path}"
+
+if [[ "${sign_rpm}" == "1" ]]; then
+  echo "Signing RPM package..."
+  "${repo_root}/scripts/release/sign-rpm.sh" "${rpm_path}"
+fi
