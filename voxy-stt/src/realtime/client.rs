@@ -978,8 +978,16 @@ async fn handle_server_payload(
     if trace::should_log(seq) {
         trace::log("server", format!("parsed_event={event:?}"));
     }
-    let should_forward_to_app =
-        should_forward_server_event_to_app(&event, stop_commit_pending, stop_commit_item_id);
+    let suppress_benign_stop_commit_error =
+        stop_commit_pending && is_benign_stop_commit_empty_buffer_error(&event);
+    let should_forward_to_app = !suppress_benign_stop_commit_error
+        && should_forward_server_event_to_app(&event, stop_commit_pending, stop_commit_item_id);
+    if suppress_benign_stop_commit_error {
+        trace::log(
+            "session",
+            "ignored benign stop-commit empty-buffer error from server",
+        );
+    }
     if let Some(app_event) = map_server_event(&event) {
         if should_forward_to_app {
             if trace::should_log(seq) {
@@ -1010,7 +1018,9 @@ async fn handle_server_payload(
         }
         crate::realtime::protocol::server_event::ServerEvent::TranscriptionFailed { message }
         | crate::realtime::protocol::server_event::ServerEvent::Error { message } => {
-            let _ = downlink_tx.send(TranscriberOutput::Error(message.clone()));
+            if !suppress_benign_stop_commit_error {
+                let _ = downlink_tx.send(TranscriberOutput::Error(message.clone()));
+            }
         }
         crate::realtime::protocol::server_event::ServerEvent::Unknown { event_type } => {
             if let Some(event_type) = event_type {
@@ -1041,6 +1051,21 @@ fn should_forward_server_event_to_app(
         }
         _ => true,
     }
+}
+
+fn is_benign_stop_commit_empty_buffer_error(event: &ServerEvent) -> bool {
+    let message = match event {
+        ServerEvent::TranscriptionFailed { message } | ServerEvent::Error { message } => message,
+        _ => return false,
+    };
+
+    // Realtime may reject stop-time commit when VAD/silence has already drained the buffer.
+    // This specific error is expected and should not surface as a user-facing runtime error.
+    let normalized = message.trim().to_ascii_lowercase();
+    normalized.contains("error committing input audio buffer")
+        && normalized.contains("buffer too small")
+        && normalized.contains("expected at least 100ms of audio")
+        && (normalized.contains("0.00ms") || normalized.contains(" 0ms"))
 }
 
 async fn emit_runtime_error(
@@ -1637,6 +1662,74 @@ mod tests {
                 .await
                 .is_err(),
             "mismatched completion should not emit SegmentCommitted"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stop_pending_ignores_benign_empty_buffer_commit_error() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);
+
+        let payload = json!({
+            "type": "error",
+            "error": {
+                "message": "Error committing input audio buffer: buffer too small. Expected at least 100ms of audio, but buffer only has 0.00ms of audio."
+            }
+        })
+        .to_string();
+
+        let parsed = handle_server_payload(&event_tx, &downlink_tx, &payload, true, None).await;
+        assert!(matches!(parsed, Some(ServerEvent::Error { .. })));
+        assert!(
+            time::timeout(Duration::from_millis(120), event_rx.recv())
+                .await
+                .is_err(),
+            "benign stop-commit empty-buffer errors should not emit AppEvent::RuntimeError"
+        );
+        assert!(
+            time::timeout(Duration::from_millis(120), downlink_rx.recv())
+                .await
+                .is_err(),
+            "benign stop-commit empty-buffer errors should not emit downlink errors"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn non_stop_error_payload_still_surfaces_runtime_error() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);
+
+        let payload = json!({
+            "type": "error",
+            "error": {
+                "message": "Error committing input audio buffer: buffer too small. Expected at least 100ms of audio, but buffer only has 0.00ms of audio."
+            }
+        })
+        .to_string();
+
+        let parsed = handle_server_payload(&event_tx, &downlink_tx, &payload, false, None).await;
+        assert!(matches!(parsed, Some(ServerEvent::Error { .. })));
+
+        let app_event = time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("app event should be emitted")
+            .expect("event channel should stay open");
+        assert_eq!(
+            app_event,
+            AppEvent::RuntimeError(
+                "Error committing input audio buffer: buffer too small. Expected at least 100ms of audio, but buffer only has 0.00ms of audio.".to_owned()
+            )
+        );
+
+        let downlink_event = time::timeout(Duration::from_secs(1), downlink_rx.recv())
+            .await
+            .expect("downlink error should be emitted")
+            .expect("downlink receiver should stay open");
+        assert_eq!(
+            downlink_event,
+            TranscriberOutput::Error(
+                "Error committing input audio buffer: buffer too small. Expected at least 100ms of audio, but buffer only has 0.00ms of audio.".to_owned()
+            )
         );
     }
 
