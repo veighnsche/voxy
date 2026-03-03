@@ -2,7 +2,7 @@ use std::{
     env,
     sync::atomic::{AtomicU64, Ordering},
     sync::{Arc, Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures_util::{SinkExt, StreamExt};
@@ -27,9 +27,12 @@ use crate::{
     config::load_api_key,
     realtime::{
         audio_uplink,
-        backoff::{delay_for_attempt, RetryPolicy},
+        backoff::{delay_for_attempt_with_jitter, RetryPolicy},
         event_mapper::map_server_event,
-        protocol::{client_event::ClientEvent, server_event::parse_server_event},
+        protocol::{
+            client_event::ClientEvent,
+            server_event::{parse_server_event, ServerEvent},
+        },
         session::SessionConfig,
         state::ConnectionState,
     },
@@ -48,14 +51,18 @@ const RECONNECT_ENABLED_ENV: &str = "VOXY_STT_RECONNECT_ENABLED";
 const RECONNECT_MAX_RETRIES_ENV: &str = "VOXY_STT_RECONNECT_MAX_RETRIES";
 const RECONNECT_BASE_MS_ENV: &str = "VOXY_STT_RECONNECT_BASE_MS";
 const RECONNECT_MAX_MS_ENV: &str = "VOXY_STT_RECONNECT_MAX_MS";
+const STOP_FLUSH_TIMEOUT_MS_ENV: &str = "VOXY_STT_STOP_FLUSH_TIMEOUT_MS";
 const DEFAULT_RECONNECT_ENABLED: bool = true;
+const DEFAULT_RECONNECT_MAX_RETRIES: u32 = 8;
 const DEFAULT_RECONNECT_BASE_MS: u64 = 250;
 const DEFAULT_RECONNECT_MAX_MS: u64 = 5_000;
+const DEFAULT_STOP_FLUSH_TIMEOUT_MS: u64 = 3_000;
 const UPLINK_BUFFER_CAPACITY: usize = 256;
 static SOURCE_FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
 static UPLINK_SEQ: AtomicU64 = AtomicU64::new(0);
 static SERVER_SEQ: AtomicU64 = AtomicU64::new(0);
 static SERVER_PAYLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
+static RETRY_JITTER_SEQ: AtomicU64 = AtomicU64::new(0);
 static RUSTLS_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
 pub struct OpenAiRealtimeTranscriber {
@@ -150,6 +157,22 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
     ) -> Result<(), TranscriberContractError> {
         let mut worker = self.lock_worker("start")?;
 
+        if worker
+            .task
+            .as_ref()
+            .map(|task| task.is_finished())
+            .unwrap_or(false)
+        {
+            trace::log(
+                "start",
+                "clearing stale worker state from finished background task",
+            );
+            worker.task = None;
+            worker.stop_tx = None;
+            worker.uplink_tx = None;
+            worker.connection_state = ConnectionState::Disconnected;
+        }
+
         if worker.task.is_some() {
             return Err(TranscriberContractError::AlreadyRunning);
         }
@@ -164,8 +187,8 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
             "start",
             format!(
                 "api_key_source={} ws_url={} model={} sample_rate={} channels={}",
-                api_key.source.description(),
-                ws_url,
+                api_key.source.redacted_description(),
+                redact_ws_url_for_trace(&ws_url),
                 config.model.as_api_id(),
                 config.sample_rate_hz,
                 config.channels
@@ -259,7 +282,19 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
 
     fn state(&self) -> TranscriberStreamState {
         match self.worker.lock() {
-            Ok(worker) => {
+            Ok(mut worker) => {
+                if worker
+                    .task
+                    .as_ref()
+                    .map(|task| task.is_finished())
+                    .unwrap_or(false)
+                {
+                    trace::log("state", "detected finished worker task; resetting to idle");
+                    worker.task = None;
+                    worker.stop_tx = None;
+                    worker.uplink_tx = None;
+                    worker.connection_state = ConnectionState::Disconnected;
+                }
                 if worker.task.is_some() {
                     TranscriberStreamState::Streaming
                 } else {
@@ -277,6 +312,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_session_with_reconnect(
     tx: mpsc::Sender<AppEvent>,
     downlink_tx: broadcast::Sender<TranscriberOutput>,
@@ -371,6 +407,7 @@ async fn run_session_with_reconnect(
     trace::log("session", "session stopped");
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_single_session_attempt(
     tx: &mpsc::Sender<AppEvent>,
     downlink_tx: &broadcast::Sender<TranscriberOutput>,
@@ -382,6 +419,7 @@ async fn run_single_session_attempt(
     config: &TranscriberSessionConfig,
     source_poll_interval: Duration,
 ) -> SessionAttemptOutcome {
+    let stop_flush_timeout = stop_flush_timeout_from_env();
     let request = match build_request(ws_url, api_key) {
         Ok(request) => request,
         Err(error) => {
@@ -433,14 +471,23 @@ async fn run_single_session_attempt(
 
     let mut source_poll = time::interval(source_poll_interval);
     source_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut stop_commit_pending = false;
+    let mut stop_commit_item_id: Option<String> = None;
+    let mut stop_completion_received = false;
+    let mut stop_flush_deadline: Option<time::Instant> = None;
 
     loop {
         tokio::select! {
-            _ = &mut *stop_rx => {
-                trace::log("session", "stop requested -> commit + close");
-                let _ = send_client_event(&mut writer, ClientEvent::InputAudioBufferCommit).await;
-                let _ = writer.send(Message::Close(None)).await;
-                return SessionAttemptOutcome::StopRequested;
+            _ = &mut *stop_rx, if !stop_commit_pending => {
+                trace::log("session", "stop requested -> commit + wait for completion");
+                if let Err(error) = send_client_event(&mut writer, ClientEvent::InputAudioBufferCommit).await {
+                    return SessionAttemptOutcome::FatalFailure(format!(
+                        "failed to send realtime commit while stopping: {error}"
+                    ));
+                }
+
+                stop_commit_pending = true;
+                stop_flush_deadline = Some(time::Instant::now() + stop_flush_timeout);
             }
             incoming = reader.next() => {
                 match incoming {
@@ -449,7 +496,22 @@ async fn run_single_session_attempt(
                         if trace::should_log(seq) {
                             trace::log("server", format!("recv text_message#{} bytes={}", seq, text.len()));
                         }
-                        handle_server_payload(tx, downlink_tx, &text).await;
+                        if let Some(event) = handle_server_payload(
+                            tx,
+                            downlink_tx,
+                            &text,
+                            stop_commit_pending,
+                            stop_commit_item_id.as_deref(),
+                        )
+                        .await
+                        {
+                            observe_stop_flush_progress(
+                                &event,
+                                &mut stop_commit_pending,
+                                &mut stop_commit_item_id,
+                                &mut stop_completion_received,
+                            );
+                        }
                     }
                     Some(Ok(Message::Binary(bytes))) => {
                         let payload = String::from_utf8_lossy(&bytes);
@@ -460,10 +522,34 @@ async fn run_single_session_attempt(
                                 format!("recv binary_message#{} bytes={}", seq, bytes.len()),
                             );
                         }
-                        handle_server_payload(tx, downlink_tx, &payload).await;
+                        if let Some(event) = handle_server_payload(
+                            tx,
+                            downlink_tx,
+                            &payload,
+                            stop_commit_pending,
+                            stop_commit_item_id.as_deref(),
+                        )
+                        .await
+                        {
+                            observe_stop_flush_progress(
+                                &event,
+                                &mut stop_commit_pending,
+                                &mut stop_commit_item_id,
+                                &mut stop_completion_received,
+                            );
+                        }
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         trace::log("server", "socket closed by peer");
+                        if stop_commit_pending {
+                            emit_runtime_error(
+                                tx,
+                                downlink_tx,
+                                "Realtime socket closed before stop flush completed; final transcript may be incomplete.".to_owned(),
+                            )
+                            .await;
+                            return SessionAttemptOutcome::StopRequested;
+                        }
                         return SessionAttemptOutcome::RetryableFailure(
                             "realtime websocket closed by peer".to_owned(),
                         );
@@ -471,6 +557,17 @@ async fn run_single_session_attempt(
                     Some(Ok(_)) => {}
                     Some(Err(error)) => {
                         trace::log("server", format!("socket read error={error}"));
+                        if stop_commit_pending {
+                            emit_runtime_error(
+                                tx,
+                                downlink_tx,
+                                format!(
+                                    "Realtime read failed while waiting for final stop flush; final transcript may be incomplete: {error}"
+                                ),
+                            )
+                            .await;
+                            return SessionAttemptOutcome::StopRequested;
+                        }
                         let message = format!("realtime websocket read failed: {error}");
                         if should_retry_tungstenite_error(&error) {
                             return SessionAttemptOutcome::RetryableFailure(message);
@@ -478,8 +575,22 @@ async fn run_single_session_attempt(
                         return SessionAttemptOutcome::FatalFailure(message);
                     }
                 }
+
+                if stop_commit_pending && stop_completion_received {
+                    trace::log(
+                        "session",
+                        format!(
+                            "stop flush completed item_id={}",
+                            stop_commit_item_id
+                                .as_deref()
+                                .unwrap_or("<unspecified>")
+                        ),
+                    );
+                    let _ = writer.send(Message::Close(None)).await;
+                    return SessionAttemptOutcome::StopRequested;
+                }
             }
-            uplink = uplink_rx.recv() => {
+            uplink = uplink_rx.recv(), if !stop_commit_pending => {
                 match uplink {
                     Some(input) => {
                         trace::log("uplink", format!("received manual input {:?}", input_kind(&input)));
@@ -497,7 +608,7 @@ async fn run_single_session_attempt(
                     }
                 }
             }
-            _ = source_poll.tick(), if audio_source.is_some() => {
+            _ = source_poll.tick(), if audio_source.is_some() && !stop_commit_pending => {
                 if let Some(source) = audio_source {
                     if let Some(frame) = source.read_frame() {
                         let seq = SOURCE_FRAME_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
@@ -523,7 +634,82 @@ async fn run_single_session_attempt(
                     }
                 }
             }
+            _ = async {
+                if let Some(deadline) = stop_flush_deadline {
+                    time::sleep_until(deadline).await;
+                }
+            }, if stop_commit_pending && stop_flush_deadline.is_some() => {
+                emit_runtime_error(
+                    tx,
+                    downlink_tx,
+                    format!(
+                        "Timed out waiting for final transcription flush after stop ({}ms); transcript may be incomplete.",
+                        stop_flush_timeout.as_millis()
+                    ),
+                )
+                .await;
+                let _ = writer.send(Message::Close(None)).await;
+                return SessionAttemptOutcome::StopRequested;
+            }
         }
+    }
+}
+
+fn observe_stop_flush_progress(
+    event: &ServerEvent,
+    stop_commit_pending: &mut bool,
+    stop_commit_item_id: &mut Option<String>,
+    stop_completion_received: &mut bool,
+) {
+    if !*stop_commit_pending {
+        return;
+    }
+
+    match event {
+        ServerEvent::InputAudioBufferCommitted {
+            item_id,
+            previous_item_id,
+        } => {
+            *stop_commit_item_id = item_id.clone();
+            trace::log(
+                "session",
+                format!(
+                    "stop flush commit ack item_id={} previous_item_id={}",
+                    item_id.as_deref().unwrap_or("<none>"),
+                    previous_item_id.as_deref().unwrap_or("<none>")
+                ),
+            );
+        }
+        ServerEvent::TranscriptionCompleted { item_id, .. } => {
+            if completion_matches_expected(stop_commit_item_id.as_deref(), item_id.as_deref()) {
+                *stop_completion_received = true;
+            } else {
+                trace::log(
+                    "session",
+                    format!(
+                        "ignoring completion for non-matching item expected={} got={}",
+                        stop_commit_item_id.as_deref().unwrap_or("<none>"),
+                        item_id.as_deref().unwrap_or("<none>")
+                    ),
+                );
+            }
+        }
+        ServerEvent::TranscriptionFailed { .. } | ServerEvent::Error { .. } => {
+            *stop_completion_received = true;
+        }
+        ServerEvent::TranscriptionDelta { .. } | ServerEvent::Unknown { .. } => {}
+    }
+}
+
+fn completion_matches_expected(
+    expected_item_id: Option<&str>,
+    observed_item_id: Option<&str>,
+) -> bool {
+    match expected_item_id {
+        Some(expected) => observed_item_id
+            .map(|item_id| item_id == expected)
+            .unwrap_or(false),
+        None => true,
     }
 }
 
@@ -531,10 +717,10 @@ fn should_retry_tungstenite_error(error: &tungstenite::Error) -> bool {
     match error {
         tungstenite::Error::ConnectionClosed
         | tungstenite::Error::AlreadyClosed
-        | tungstenite::Error::Io(_)
-        | tungstenite::Error::Tls(_)
         | tungstenite::Error::Capacity(_)
         | tungstenite::Error::WriteBufferFull(_) => true,
+        tungstenite::Error::Io(error) => is_retryable_io_error(error),
+        tungstenite::Error::Tls(_) => false,
         tungstenite::Error::Http(response) => is_retryable_http_status(response.status()),
         tungstenite::Error::Protocol(_)
         | tungstenite::Error::Utf8
@@ -542,6 +728,22 @@ fn should_retry_tungstenite_error(error: &tungstenite::Error) -> bool {
         | tungstenite::Error::Url(_)
         | tungstenite::Error::HttpFormat(_) => false,
     }
+}
+
+fn is_retryable_io_error(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+
+    matches!(
+        error.kind(),
+        ErrorKind::TimedOut
+            | ErrorKind::WouldBlock
+            | ErrorKind::Interrupted
+            | ErrorKind::ConnectionRefused
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::NotConnected
+            | ErrorKind::UnexpectedEof
+    )
 }
 
 fn is_retryable_http_status(status: StatusCode) -> bool {
@@ -567,7 +769,11 @@ fn reconnect_decision(
         }
     }
 
-    let delay = delay_for_attempt(reconnect_config.retry_policy, retry_attempt);
+    let delay = delay_for_attempt_with_jitter(
+        reconnect_config.retry_policy,
+        retry_attempt,
+        next_retry_jitter_seed(retry_attempt),
+    );
     let next_attempt = retry_attempt.saturating_add(1);
     let attempt_label = reconnect_config
         .max_retries
@@ -582,13 +788,11 @@ fn reconnect_decision(
 
 fn reconnect_config_from_env() -> ReconnectConfig {
     let enabled = parse_bool_env(RECONNECT_ENABLED_ENV).unwrap_or(DEFAULT_RECONNECT_ENABLED);
-    let max_retries = parse_u32_env(RECONNECT_MAX_RETRIES_ENV).and_then(|value| {
-        if value == 0 {
-            None
-        } else {
-            Some(value)
-        }
-    });
+    let max_retries = match parse_u32_env(RECONNECT_MAX_RETRIES_ENV) {
+        Some(0) => None,
+        Some(value) => Some(value),
+        None => Some(DEFAULT_RECONNECT_MAX_RETRIES),
+    };
     let base_ms = parse_u64_env(RECONNECT_BASE_MS_ENV)
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_RECONNECT_BASE_MS);
@@ -605,6 +809,15 @@ fn reconnect_config_from_env() -> ReconnectConfig {
             max_delay: Duration::from_millis(max_ms),
         },
     }
+}
+
+fn next_retry_jitter_seed(retry_attempt: u32) -> u64 {
+    let seq = RETRY_JITTER_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
+    let now_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0);
+    seq ^ now_ns ^ ((retry_attempt as u64) << 32)
 }
 
 fn parse_bool_env(name: &str) -> Option<bool> {
@@ -630,6 +843,17 @@ fn parse_u64_env(name: &str) -> Option<u64> {
         .and_then(|raw| raw.trim().parse::<u64>().ok())
 }
 
+fn stop_flush_timeout_from_env() -> Duration {
+    static STOP_FLUSH_TIMEOUT_MS: OnceLock<u64> = OnceLock::new();
+    let timeout_ms = *STOP_FLUSH_TIMEOUT_MS.get_or_init(|| {
+        parse_u64_env(STOP_FLUSH_TIMEOUT_MS_ENV)
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_STOP_FLUSH_TIMEOUT_MS)
+    });
+
+    Duration::from_millis(timeout_ms)
+}
+
 fn realtime_url_from_env() -> String {
     let raw = env::var(REALTIME_URL_ENV).ok();
     parse_realtime_url(raw.as_deref())
@@ -643,6 +867,14 @@ fn parse_realtime_url(value: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_REALTIME_URL.to_owned())
 }
 
+fn redact_ws_url_for_trace(ws_url: &str) -> String {
+    ws_url
+        .split_once('?')
+        .map(|(base, _)| format!("{base}?<redacted>"))
+        .unwrap_or_else(|| ws_url.to_owned())
+}
+
+#[allow(clippy::result_large_err)]
 fn build_request(ws_url: &str, api_key: &str) -> Result<Request<()>, tungstenite::error::Error> {
     let mut request = ws_url.into_client_request()?;
     let auth = HeaderValue::from_str(&format!("Bearer {api_key}")).map_err(|error| {
@@ -681,7 +913,7 @@ async fn send_client_event(
     if should_log {
         trace::log("uplink", format!("send#{} {}", seq, summary));
     }
-    writer.send(Message::Text(payload.into())).await
+    writer.send(Message::Text(payload)).await
 }
 
 async fn handle_uplink_input(
@@ -722,10 +954,23 @@ async fn handle_server_payload(
     tx: &mpsc::Sender<AppEvent>,
     downlink_tx: &broadcast::Sender<TranscriberOutput>,
     payload: &str,
-) {
+    stop_commit_pending: bool,
+    stop_commit_item_id: Option<&str>,
+) -> Option<ServerEvent> {
     let value = match serde_json::from_str::<serde_json::Value>(payload) {
         Ok(value) => value,
-        Err(_) => return,
+        Err(error) => {
+            trace::log(
+                "server",
+                format!("discarding malformed server payload: {error}"),
+            );
+            let _ = tx
+                .send(AppEvent::LogMessage(format!(
+                    "Ignored malformed realtime payload: {error}"
+                )))
+                .await;
+            return None;
+        }
     };
 
     let event = parse_server_event(&value);
@@ -733,27 +978,68 @@ async fn handle_server_payload(
     if trace::should_log(seq) {
         trace::log("server", format!("parsed_event={event:?}"));
     }
+    let should_forward_to_app =
+        should_forward_server_event_to_app(&event, stop_commit_pending, stop_commit_item_id);
     if let Some(app_event) = map_server_event(&event) {
-        if trace::should_log(seq) {
-            trace::log("server", format!("mapped_app_event={app_event:?}"));
+        if should_forward_to_app {
+            if trace::should_log(seq) {
+                trace::log("server", format!("mapped_app_event={app_event:?}"));
+            }
+            let _ = tx.send(app_event).await;
+        } else if trace::should_log(seq) {
+            trace::log(
+                "server",
+                format!("ignored stale mapped_app_event={app_event:?}"),
+            );
         }
-        let _ = tx.send(app_event).await;
     }
 
-    match event {
+    match &event {
+        crate::realtime::protocol::server_event::ServerEvent::InputAudioBufferCommitted {
+            ..
+        } => {}
         crate::realtime::protocol::server_event::ServerEvent::TranscriptionDelta { text } => {
             if !text.is_empty() {
-                let _ = downlink_tx.send(TranscriberOutput::LiveText(text));
+                let _ = downlink_tx.send(TranscriberOutput::LiveText(text.clone()));
             }
         }
         crate::realtime::protocol::server_event::ServerEvent::TranscriptionCompleted { .. } => {
-            let _ = downlink_tx.send(TranscriberOutput::SegmentCommitted);
+            if should_forward_to_app {
+                let _ = downlink_tx.send(TranscriberOutput::SegmentCommitted);
+            }
         }
         crate::realtime::protocol::server_event::ServerEvent::TranscriptionFailed { message }
         | crate::realtime::protocol::server_event::ServerEvent::Error { message } => {
-            let _ = downlink_tx.send(TranscriberOutput::Error(message));
+            let _ = downlink_tx.send(TranscriberOutput::Error(message.clone()));
         }
-        crate::realtime::protocol::server_event::ServerEvent::Unknown { .. } => {}
+        crate::realtime::protocol::server_event::ServerEvent::Unknown { event_type } => {
+            if let Some(event_type) = event_type {
+                let _ = tx
+                    .send(AppEvent::LogMessage(format!(
+                        "Ignored unsupported realtime event type: {event_type}"
+                    )))
+                    .await;
+            }
+        }
+    }
+
+    Some(event)
+}
+
+fn should_forward_server_event_to_app(
+    event: &ServerEvent,
+    stop_commit_pending: bool,
+    stop_commit_item_id: Option<&str>,
+) -> bool {
+    if !stop_commit_pending {
+        return true;
+    }
+
+    match event {
+        ServerEvent::TranscriptionCompleted { item_id, .. } => {
+            completion_matches_expected(stop_commit_item_id, item_id.as_deref())
+        }
+        _ => true,
     }
 }
 
@@ -845,15 +1131,22 @@ fn ensure_rustls_provider() -> Result<(), &'static str> {
 mod tests {
     use std::{sync::Mutex, time::Duration};
 
+    use serde_json::json;
+    use tokio::{sync::mpsc, time};
     use tokio_tungstenite::tungstenite::{self, http::Response};
+    use voxy_core::AppEvent;
 
     use super::{
-        parse_realtime_url, parse_source_poll_ms, reconnect_config_from_env, reconnect_decision,
+        completion_matches_expected, handle_server_payload, parse_realtime_url,
+        parse_source_poll_ms, reconnect_config_from_env, reconnect_decision,
+        redact_ws_url_for_trace, should_forward_server_event_to_app,
         should_retry_tungstenite_error, ReconnectConfig, RetryDecision, DEFAULT_REALTIME_URL,
         DEFAULT_RECONNECT_BASE_MS, DEFAULT_RECONNECT_ENABLED, DEFAULT_RECONNECT_MAX_MS,
-        DEFAULT_SOURCE_POLL_MS, RECONNECT_BASE_MS_ENV, RECONNECT_ENABLED_ENV, RECONNECT_MAX_MS_ENV,
-        RECONNECT_MAX_RETRIES_ENV,
+        DEFAULT_RECONNECT_MAX_RETRIES, DEFAULT_SOURCE_POLL_MS, RECONNECT_BASE_MS_ENV,
+        RECONNECT_ENABLED_ENV, RECONNECT_MAX_MS_ENV, RECONNECT_MAX_RETRIES_ENV,
     };
+    use crate::realtime::protocol::server_event::ServerEvent;
+    use crate::traits::TranscriberOutput;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -935,6 +1228,14 @@ mod tests {
     }
 
     #[test]
+    fn retry_classifier_marks_permanent_io_errors_as_non_retryable() {
+        let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert!(!should_retry_tungstenite_error(&tungstenite::Error::Io(
+            io_error
+        )));
+    }
+
+    #[test]
     fn retry_classifier_marks_connection_closed_as_retryable() {
         assert!(should_retry_tungstenite_error(
             &tungstenite::Error::ConnectionClosed
@@ -951,10 +1252,18 @@ mod tests {
     }
 
     #[test]
+    fn retry_classifier_marks_tls_errors_as_non_retryable() {
+        let tls_error = rustls::Error::General("handshake failed".to_owned());
+        assert!(!should_retry_tungstenite_error(&tungstenite::Error::Tls(
+            tls_error.into(),
+        )));
+    }
+
+    #[test]
     fn reconnect_config_uses_defaults_when_env_is_unset() {
         let config = reconnect_defaults();
         assert_eq!(config.enabled, DEFAULT_RECONNECT_ENABLED);
-        assert_eq!(config.max_retries, None);
+        assert_eq!(config.max_retries, Some(DEFAULT_RECONNECT_MAX_RETRIES));
         assert_eq!(
             config.retry_policy.base_delay,
             Duration::from_millis(DEFAULT_RECONNECT_BASE_MS)
@@ -982,6 +1291,15 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_config_treats_zero_retry_limit_as_unlimited() {
+        let _env_lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _max_retries = EnvVarGuard::set(RECONNECT_MAX_RETRIES_ENV, "0");
+
+        let config = reconnect_config_from_env();
+        assert_eq!(config.max_retries, None);
+    }
+
+    #[test]
     fn parse_realtime_url_uses_default_when_value_is_missing_or_blank() {
         assert_eq!(parse_realtime_url(None), DEFAULT_REALTIME_URL);
         assert_eq!(parse_realtime_url(Some("   ")), DEFAULT_REALTIME_URL);
@@ -994,6 +1312,18 @@ mod tests {
         assert_eq!(
             parse_realtime_url(Some("  wss://example.test/x  ")),
             "wss://example.test/x"
+        );
+    }
+
+    #[test]
+    fn redact_ws_url_for_trace_strips_query_string() {
+        assert_eq!(
+            redact_ws_url_for_trace("wss://example.test/realtime?intent=transcription&token=abc"),
+            "wss://example.test/realtime?<redacted>"
+        );
+        assert_eq!(
+            redact_ws_url_for_trace("wss://example.test/realtime"),
+            "wss://example.test/realtime"
         );
     }
 
@@ -1054,7 +1384,8 @@ mod tests {
         let decision = reconnect_decision(config, 1, "socket closed");
         match decision {
             RetryDecision::Retry(plan) => {
-                assert_eq!(plan.delay, Duration::from_millis(200));
+                assert!(plan.delay >= Duration::from_millis(100));
+                assert!(plan.delay <= Duration::from_millis(200));
                 assert_eq!(plan.retry_attempt, 2);
                 assert_eq!(plan.attempt_label, "2/3");
             }
@@ -1062,5 +1393,102 @@ mod tests {
                 panic!("expected retry decision, got give up: {message}");
             }
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn completion_payload_maps_commit_when_item_id_matches() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);
+
+        let payload = json!({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "item_id": "item-a",
+            "transcript": "final"
+        })
+        .to_string();
+
+        let parsed =
+            handle_server_payload(&event_tx, &downlink_tx, &payload, true, Some("item-a")).await;
+        assert!(matches!(
+            parsed,
+            Some(ServerEvent::TranscriptionCompleted { .. })
+        ));
+
+        let app_event = time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("app event should be emitted")
+            .expect("event channel should stay open");
+        assert_eq!(app_event, AppEvent::CommitRequested);
+
+        let downlink_event = time::timeout(Duration::from_secs(1), downlink_rx.recv())
+            .await
+            .expect("downlink event should be emitted")
+            .expect("downlink receiver should stay open");
+        assert_eq!(downlink_event, TranscriberOutput::SegmentCommitted);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn completion_payload_is_ignored_when_item_id_is_mismatched() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let (downlink_tx, mut downlink_rx) = tokio::sync::broadcast::channel(8);
+
+        let payload = json!({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "item_id": "item-b",
+            "transcript": "stale"
+        })
+        .to_string();
+
+        let parsed =
+            handle_server_payload(&event_tx, &downlink_tx, &payload, true, Some("item-a")).await;
+        assert!(matches!(
+            parsed,
+            Some(ServerEvent::TranscriptionCompleted { .. })
+        ));
+
+        assert!(
+            time::timeout(Duration::from_millis(120), event_rx.recv())
+                .await
+                .is_err(),
+            "mismatched completion should not emit AppEvent::CommitRequested"
+        );
+        assert!(
+            time::timeout(Duration::from_millis(120), downlink_rx.recv())
+                .await
+                .is_err(),
+            "mismatched completion should not emit SegmentCommitted"
+        );
+    }
+
+    #[test]
+    fn completion_matching_respects_expected_item_id() {
+        assert!(completion_matches_expected(None, None));
+        assert!(completion_matches_expected(None, Some("item-a")));
+        assert!(completion_matches_expected(Some("item-a"), Some("item-a")));
+        assert!(!completion_matches_expected(Some("item-a"), Some("item-b")));
+        assert!(!completion_matches_expected(Some("item-a"), None));
+    }
+
+    #[test]
+    fn stop_pending_forwarding_filters_non_matching_completion() {
+        let mismatched = ServerEvent::TranscriptionCompleted {
+            item_id: Some("item-b".to_owned()),
+            text: Some("stale".to_owned()),
+        };
+        let matched = ServerEvent::TranscriptionCompleted {
+            item_id: Some("item-a".to_owned()),
+            text: Some("final".to_owned()),
+        };
+
+        assert!(!should_forward_server_event_to_app(
+            &mismatched,
+            true,
+            Some("item-a")
+        ));
+        assert!(should_forward_server_event_to_app(
+            &matched,
+            true,
+            Some("item-a")
+        ));
     }
 }

@@ -8,6 +8,7 @@ pub fn map_server_event(event: &ServerEvent) -> Option<AppEvent> {
             Some(AppEvent::LiveText(text.clone()))
         }
         ServerEvent::TranscriptionCompleted { .. } => Some(AppEvent::CommitRequested),
+        ServerEvent::InputAudioBufferCommitted { .. } => None,
         ServerEvent::TranscriptionFailed { message } => {
             Some(AppEvent::RuntimeError(message.clone()))
         }

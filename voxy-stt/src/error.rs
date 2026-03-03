@@ -14,6 +14,10 @@ pub enum SttConfigError {
     ApiKeyFileEmpty {
         path: PathBuf,
     },
+    DotenvFilePathOutsideBase {
+        dotenv_path: PathBuf,
+        file_value: String,
+    },
 }
 
 impl fmt::Display for SttConfigError {
@@ -33,6 +37,14 @@ impl fmt::Display for SttConfigError {
                 f,
                 "API key file '{}' exists but is empty after trimming",
                 path.display()
+            ),
+            Self::DotenvFilePathOutsideBase {
+                dotenv_path,
+                file_value,
+            } => write!(
+                f,
+                "dotenv key file path '{file_value}' in '{}' must be a relative path within the dotenv directory",
+                dotenv_path.display()
             ),
         }
     }

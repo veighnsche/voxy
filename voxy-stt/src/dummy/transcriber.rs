@@ -247,9 +247,8 @@ mod tests {
 
     impl TestAudioSource {
         fn with_frame_count(frame_count: usize) -> Self {
-            let frame = PcmFrame::new(16_000, 1, vec![1, 2, 3, 4]);
             let frames = (0..frame_count)
-                .map(|_| frame.clone())
+                .map(|_| PcmFrame::new(16_000, 1, vec![1, 2, 3, 4]))
                 .collect::<VecDeque<_>>();
             Self {
                 frames: Mutex::new(frames),

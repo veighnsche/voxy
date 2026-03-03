@@ -8,6 +8,8 @@ use crate::error::SttConfigError;
 pub const VOXY_OPENAI_API_KEY_ENV: &str = "VOXY_OPENAI_API_KEY";
 pub const VOXY_OPENAI_API_KEY_FILE_ENV: &str = "VOXY_OPENAI_API_KEY_FILE";
 pub const OPENAI_API_KEY_ENV: &str = "OPENAI_API_KEY";
+const DOTENV_ENABLED_ENV: &str = "VOXY_STT_DOTENV_ENABLED";
+const DOTENV_DIR_ENV: &str = "VOXY_STT_DOTENV_DIR";
 const DOTENV_FILES: [&str; 2] = [".env", ".env.local"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +26,17 @@ pub enum ApiKeySource {
 }
 
 impl ApiKeySource {
+    pub fn redacted_description(&self) -> &'static str {
+        match self {
+            Self::VoxyEnv => VOXY_OPENAI_API_KEY_ENV,
+            Self::VoxyFile(_) => VOXY_OPENAI_API_KEY_FILE_ENV,
+            Self::OpenAiEnv => OPENAI_API_KEY_ENV,
+            Self::DotenvVoxyEnv(_) => "dotenv:VOXY_OPENAI_API_KEY",
+            Self::DotenvVoxyFile { .. } => "dotenv:VOXY_OPENAI_API_KEY_FILE",
+            Self::DotenvOpenAiEnv(_) => "dotenv:OPENAI_API_KEY",
+        }
+    }
+
     pub fn description(&self) -> String {
         match self {
             Self::VoxyEnv => VOXY_OPENAI_API_KEY_ENV.to_owned(),
@@ -123,12 +136,19 @@ fn read_key_from_file(path: &Path) -> Result<String, SttConfigError> {
 }
 
 fn load_api_key_from_dotenv() -> Result<Option<ApiKeyConfig>, SttConfigError> {
-    let cwd = match env::current_dir() {
-        Ok(path) => path,
-        Err(_) => return Ok(None),
+    if !dotenv_enabled() {
+        return Ok(None);
+    }
+
+    let dotenv_dir = non_empty_env(DOTENV_DIR_ENV)
+        .map(PathBuf::from)
+        .or_else(|| env::current_dir().ok());
+
+    let Some(dotenv_dir) = dotenv_dir else {
+        return Ok(None);
     };
 
-    load_api_key_from_dotenv_dir(&cwd)
+    load_api_key_from_dotenv_dir(&dotenv_dir)
 }
 
 fn load_api_key_from_dotenv_dir(dir: &Path) -> Result<Option<ApiKeyConfig>, SttConfigError> {
@@ -162,7 +182,7 @@ fn load_api_key_from_dotenv_dir(dir: &Path) -> Result<Option<ApiKeyConfig>, SttC
     }
 
     if let Some((file_value, dotenv_path)) = voxy_file {
-        let key_path = resolve_relative_path(&dotenv_path, &file_value);
+        let key_path = resolve_relative_path(&dotenv_path, &file_value)?;
         let api_key = read_key_from_file(&key_path)?;
         return Ok(Some(ApiKeyConfig {
             api_key,
@@ -238,14 +258,142 @@ fn parse_env_value(value_raw: &str) -> String {
         .to_owned()
 }
 
-fn resolve_relative_path(dotenv_path: &Path, file_value: &str) -> PathBuf {
+fn resolve_relative_path(dotenv_path: &Path, file_value: &str) -> Result<PathBuf, SttConfigError> {
     let candidate = PathBuf::from(file_value);
     if candidate.is_absolute() {
-        return candidate;
+        return Err(SttConfigError::DotenvFilePathOutsideBase {
+            dotenv_path: dotenv_path.to_path_buf(),
+            file_value: file_value.to_owned(),
+        });
     }
 
-    dotenv_path
+    let Some(normalized_relative) = normalize_relative_path(&candidate) else {
+        return Err(SttConfigError::DotenvFilePathOutsideBase {
+            dotenv_path: dotenv_path.to_path_buf(),
+            file_value: file_value.to_owned(),
+        });
+    };
+
+    Ok(dotenv_path
         .parent()
         .unwrap_or_else(|| Path::new(""))
-        .join(candidate)
+        .join(normalized_relative))
+}
+
+fn normalize_relative_path(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(value) => normalized.push(value),
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(normalized)
+}
+
+fn dotenv_enabled() -> bool {
+    parse_bool_env(non_empty_env(DOTENV_ENABLED_ENV).as_deref()).unwrap_or(true)
+}
+
+fn parse_bool_env(value: Option<&str>) -> Option<bool> {
+    value.map(str::trim).and_then(|value| {
+        let value = value.to_ascii_lowercase();
+        match value.as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use crate::error::SttConfigError;
+
+    use super::{load_api_key_from_dotenv_dir, normalize_relative_path, parse_bool_env};
+
+    fn test_dir(test_name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "voxy-stt-config-{test_name}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn parse_bool_env_accepts_expected_values() {
+        assert_eq!(parse_bool_env(Some("true")), Some(true));
+        assert_eq!(parse_bool_env(Some("YES")), Some(true));
+        assert_eq!(parse_bool_env(Some("0")), Some(false));
+        assert_eq!(parse_bool_env(Some("off")), Some(false));
+        assert_eq!(parse_bool_env(Some("invalid")), None);
+    }
+
+    #[test]
+    fn normalize_relative_path_rejects_escape_attempts() {
+        assert_eq!(
+            normalize_relative_path(Path::new("keys/prod.txt")),
+            Some(PathBuf::from("keys/prod.txt"))
+        );
+        assert_eq!(
+            normalize_relative_path(Path::new("./keys/../prod.txt")),
+            Some(PathBuf::from("prod.txt"))
+        );
+        assert_eq!(normalize_relative_path(Path::new("../prod.txt")), None);
+        assert_eq!(normalize_relative_path(Path::new("../../prod.txt")), None);
+    }
+
+    #[test]
+    fn dotenv_key_file_path_must_stay_within_dotenv_dir() {
+        let dir = test_dir("dotenv-key-path-bounds");
+        fs::create_dir_all(&dir).expect("test directory should be created");
+        fs::write(
+            dir.join(".env"),
+            "VOXY_OPENAI_API_KEY_FILE=../outside-key.txt\n",
+        )
+        .expect("dotenv should be written");
+
+        let error = load_api_key_from_dotenv_dir(&dir).expect_err("path escape should fail");
+        assert!(
+            matches!(error, SttConfigError::DotenvFilePathOutsideBase { .. }),
+            "expected path bounds error, got: {error}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dotenv_key_file_path_allows_relative_path_inside_dir() {
+        let dir = test_dir("dotenv-key-path-inside");
+        let key_dir = dir.join("keys");
+        fs::create_dir_all(&key_dir).expect("test key directory should be created");
+        fs::write(key_dir.join("api.txt"), "sk-test-key\n")
+            .expect("api key file should be written");
+        fs::write(dir.join(".env"), "VOXY_OPENAI_API_KEY_FILE=keys/api.txt\n")
+            .expect("dotenv should be written");
+
+        let config = load_api_key_from_dotenv_dir(&dir)
+            .expect("dotenv load should not fail")
+            .expect("api key config should be resolved");
+        assert_eq!(config.api_key, "sk-test-key");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

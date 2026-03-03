@@ -2,11 +2,26 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerEvent {
-    TranscriptionDelta { text: String },
-    TranscriptionCompleted { text: Option<String> },
-    TranscriptionFailed { message: String },
-    Error { message: String },
-    Unknown { event_type: Option<String> },
+    TranscriptionDelta {
+        text: String,
+    },
+    InputAudioBufferCommitted {
+        item_id: Option<String>,
+        previous_item_id: Option<String>,
+    },
+    TranscriptionCompleted {
+        item_id: Option<String>,
+        text: Option<String>,
+    },
+    TranscriptionFailed {
+        message: String,
+    },
+    Error {
+        message: String,
+    },
+    Unknown {
+        event_type: Option<String>,
+    },
 }
 
 pub fn parse_server_event(value: &Value) -> ServerEvent {
@@ -21,12 +36,30 @@ pub fn parse_server_event(value: &Value) -> ServerEvent {
                 .to_owned();
             ServerEvent::TranscriptionDelta { text }
         }
+        Some("input_audio_buffer.committed") => {
+            let item_id = value
+                .get("item_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let previous_item_id = value
+                .get("previous_item_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            ServerEvent::InputAudioBufferCommitted {
+                item_id,
+                previous_item_id,
+            }
+        }
         Some("conversation.item.input_audio_transcription.completed") => {
+            let item_id = value
+                .get("item_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let text = value
                 .get("transcript")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            ServerEvent::TranscriptionCompleted { text }
+            ServerEvent::TranscriptionCompleted { item_id, text }
         }
         Some("conversation.item.input_audio_transcription.failed") => {
             let message = extract_message(value);
@@ -75,12 +108,30 @@ mod tests {
     fn parses_transcription_completed_with_transcript() {
         let event = parse_server_event(&json!({
             "type": "conversation.item.input_audio_transcription.completed",
+            "item_id": "item_123",
             "transcript": "hello world"
         }));
         assert_eq!(
             event,
             ServerEvent::TranscriptionCompleted {
+                item_id: Some("item_123".to_owned()),
                 text: Some("hello world".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn parses_input_audio_buffer_committed_event() {
+        let event = parse_server_event(&json!({
+            "type": "input_audio_buffer.committed",
+            "item_id": "item_42",
+            "previous_item_id": "item_41"
+        }));
+        assert_eq!(
+            event,
+            ServerEvent::InputAudioBufferCommitted {
+                item_id: Some("item_42".to_owned()),
+                previous_item_id: Some("item_41".to_owned())
             }
         );
     }
