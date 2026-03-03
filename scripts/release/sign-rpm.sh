@@ -35,4 +35,28 @@ else
 fi
 
 echo "Signature check:"
-rpm -Kv "${rpm_path}"
+set +e
+verify_output="$(rpm -Kv "${rpm_path}" 2>&1)"
+verify_rc=$?
+set -e
+printf '%s\n' "${verify_output}"
+
+if [[ ${verify_rc} -eq 0 ]]; then
+  exit 0
+fi
+
+if grep -q "Header OpenPGP" <<< "${verify_output}" && grep -q "NOKEY" <<< "${verify_output}"; then
+  echo ""
+  echo "RPM is signed, but the public key is not imported into the RPM keyring (NOKEY)."
+  if [[ -n "${gpg_key}" ]]; then
+    echo "Import it with:"
+    echo "  gpg --armor --export ${gpg_key} | sudo rpm --import -"
+  else
+    echo "Import the signing public key with:"
+    echo "  gpg --armor --export <KEYID> | sudo rpm --import -"
+  fi
+  exit 0
+fi
+
+echo "RPM signature verification failed." >&2
+exit "${verify_rc}"

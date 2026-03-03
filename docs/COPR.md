@@ -96,3 +96,9 @@ Verify signature material:
 ```bash
 rpm -Kv target/rpm/RPMS/x86_64/voxy-app-*.rpm
 ```
+
+If verification shows `NOKEY`, import your public key into RPM keyring:
+
+```bash
+gpg --armor --export 678C0FB8FAA0489A | sudo rpm --import -
+```
