@@ -10,7 +10,6 @@ Status: **NOT production ready**.
 
 Highest current risks:
 - Reconnect-path transcript evidence is unit-level; full mocked-websocket reconnect integration is still pending.
-- Crash/kill durability simulation for settings persistence is still pending.
 - Release evidence remains manual (CI links, rollback drill, owner assignment).
 
 ## P0: Must Pass Before Any Production Launch
@@ -48,7 +47,7 @@ Highest current risks:
 - [x] Settings writes are off the UI event loop and debounced.
 - [x] Settings write path is atomic and crash-safe (`tmp` + rename + durability step).
 - [x] Persistence failures are visible in UI (not trace-only).
-- [ ] Required evidence: crash/kill simulation showing previous-good or new-good settings file.
+- [x] Required evidence: crash/kill simulation showing previous-good or new-good settings file.
 - [ ] Code refs: `voxy-app/src/app/controller/event_processing.rs`, `voxy-app/src/app/controller/settings_sync.rs`, `voxy-app/src/app/settings_store/file_store.rs`.
 
 ### 6. CI and Quality Gates

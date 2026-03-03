@@ -6,7 +6,7 @@ use voxy_core::{
 mod file_store;
 mod paths;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq)]
 struct SettingsFile {
     silence_auto_stop_seconds: Option<u64>,
     silence_gate_threshold: Option<f32>,

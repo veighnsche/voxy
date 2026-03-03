@@ -66,7 +66,7 @@ Eliminate silent audio failures and unsafe frame-size configuration.
 - Manual run with invalid config confirms explicit runtime errors.
 
 ## VOXY-P0-005: Atomic and Non-Blocking Settings Persistence
-Status: `implemented in code`; crash-kill durability proof pending.
+Status: `implemented in code/tests`.
 
 ### Goal
 Make settings persistence resilient and non-blocking for the UI loop.
@@ -77,7 +77,7 @@ Make settings persistence resilient and non-blocking for the UI loop.
 - Save/load errors are shown in UI (not trace-only).
 
 ### Verification
-- Crash/kill simulation during write keeps either old-good or new-good file.
+- Crash/kill simulation tests cover crash-after-temp-write (old-good preserved) and crash-after-rename (new-good preserved).
 - UI interaction remains responsive during rapid settings changes.
 
 ## VOXY-P0-006: CI Gate Expansion
