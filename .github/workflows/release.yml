@@ -18,8 +18,12 @@ jobs:
 
       - name: Install GTK dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
+          ${SUDO} apt-get update
+          ${SUDO} apt-get install -y \
             appstream \
             desktop-file-utils \
             pkg-config \

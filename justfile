@@ -39,7 +39,7 @@ validate: doctor
     cargo run -p xtask -- gui visibility-smoke
     cargo run -p xtask -- gui visibility-window-guard
 
-act-ci event="push" runner="-self-hosted": doctor
+act-ci event="push" runner="ghcr.io/catthehacker/ubuntu:full-latest": doctor
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -54,16 +54,21 @@ act-ci event="push" runner="-self-hosted": doctor
       "${cache_root}/cache" \
       "${cache_root}/artifacts"
 
-    exec act "{{event}}" \
+    event_name="{{event}}"
+    event_name="${event_name#event=}"
+    runner_image="{{runner}}"
+    runner_image="${runner_image#runner=}"
+
+    exec act "${event_name}" \
       -W .github/workflows/ci.yml \
-      -P "ubuntu-latest={{runner}}" \
+      -P "ubuntu-latest=${runner_image}" \
       --reuse \
       --pull=false \
       --action-cache-path "${cache_root}/actions" \
       --cache-server-path "${cache_root}/cache" \
       --artifact-server-path "${cache_root}/artifacts"
 
-act-checks event="push" runner="-self-hosted": doctor
+act-checks event="push" runner="ghcr.io/catthehacker/ubuntu:full-latest": doctor
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -78,17 +83,22 @@ act-checks event="push" runner="-self-hosted": doctor
       "${cache_root}/cache" \
       "${cache_root}/artifacts"
 
-    exec act "{{event}}" \
+    event_name="{{event}}"
+    event_name="${event_name#event=}"
+    runner_image="{{runner}}"
+    runner_image="${runner_image#runner=}"
+
+    exec act "${event_name}" \
       -j checks \
       -W .github/workflows/ci.yml \
-      -P "ubuntu-latest={{runner}}" \
+      -P "ubuntu-latest=${runner_image}" \
       --reuse \
       --pull=false \
       --action-cache-path "${cache_root}/actions" \
       --cache-server-path "${cache_root}/cache" \
       --artifact-server-path "${cache_root}/artifacts"
 
-act-security event="push" runner="-self-hosted": doctor
+act-security event="push" runner="ghcr.io/catthehacker/ubuntu:full-latest": doctor
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -103,10 +113,15 @@ act-security event="push" runner="-self-hosted": doctor
       "${cache_root}/cache" \
       "${cache_root}/artifacts"
 
-    exec act "{{event}}" \
+    event_name="{{event}}"
+    event_name="${event_name#event=}"
+    runner_image="{{runner}}"
+    runner_image="${runner_image#runner=}"
+
+    exec act "${event_name}" \
       -j security \
       -W .github/workflows/ci.yml \
-      -P "ubuntu-latest={{runner}}" \
+      -P "ubuntu-latest=${runner_image}" \
       --reuse \
       --pull=false \
       --action-cache-path "${cache_root}/actions" \

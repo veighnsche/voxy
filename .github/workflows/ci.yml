@@ -14,10 +14,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install GTK dependencies
-        if: ${{ !env.ACT }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
+          ${SUDO} apt-get update
+          ${SUDO} apt-get install -y \
             appstream \
             desktop-file-utils \
             pkg-config \
@@ -26,12 +29,6 @@ jobs:
             libasound2-dev \
             xvfb
           ./scripts/dev/install-gtk4-layer-shell.sh
-
-      - name: Verify local GTK dependencies (act)
-        if: ${{ env.ACT }}
-        run: |
-          pkg-config --modversion gtk4
-          pkg-config --modversion graphene-1.0
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -54,10 +51,9 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Packaging metadata validation
-        run: just validate-packaging-strict
+        run: VOXY_PACKAGING_VALIDATE_STRICT=1 ./scripts/release/validate-packaging.sh
 
-      - name: GUI smoke and lifecycle flows (xvfb)
-        if: ${{ !env.ACT }}
+      - name: GUI smoke and lifecycle flows
         run: |
           xvfb-run -a cargo run -p xtask -- gui smoke
           xvfb-run -a cargo run -p xtask -- gui lifecycle
@@ -67,18 +63,6 @@ jobs:
           xvfb-run -a cargo run -p xtask -- gui visibility-toggle-flow
           xvfb-run -a cargo run -p xtask -- gui visibility-smoke
           xvfb-run -a cargo run -p xtask -- gui visibility-window-guard
-
-      - name: GUI smoke and lifecycle flows (act host)
-        if: ${{ env.ACT }}
-        run: |
-          cargo run -p xtask -- gui smoke
-          cargo run -p xtask -- gui lifecycle
-          cargo run -p xtask -- gui quit-fallback
-          cargo run -p xtask -- gui reset-flow
-          cargo run -p xtask -- gui stt-fixture-smoke
-          cargo run -p xtask -- gui visibility-toggle-flow
-          cargo run -p xtask -- gui visibility-smoke
-          cargo run -p xtask -- gui visibility-window-guard
 
   security:
     runs-on: ubuntu-latest
