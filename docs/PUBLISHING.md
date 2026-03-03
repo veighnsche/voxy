@@ -15,6 +15,7 @@ Already present:
 - [x] Basic release checklist: `RELEASE.md`
 - [x] CI checks for format/check/test/core + `voxy-app` check: `.github/workflows/ci.yml`
 - [x] Local RPM build script: `scripts/release/build-rpm.sh`
+- [x] Canonical release screenshots tracked in-repo (`assets/screenshots/{idle,recording,config}.png`)
 
 Missing for marketplace publishing:
 - [ ] Canonical, stable application ID decision for all channels
@@ -23,7 +24,8 @@ Missing for marketplace publishing:
 - [ ] App icons in standard sizes (and ideally SVG)
 - [ ] Flatpak manifest + permissions review
 - [ ] AUR PKGBUILD + `.SRCINFO`
-- [ ] COPR project + maintained `.spec` workflow from source tarball/SRPM
+- [ ] COPR project created and enabled chroots
+- [x] Maintained RPM `.spec` + SRPM workflow in repo
 
 ## 2. One-Time Decisions
 
@@ -57,6 +59,10 @@ Missing for marketplace publishing:
 - [ ] Add icons:
   - `packaging/linux/icons/hicolor/128x128/apps/<app-id>.png`
   - `packaging/linux/icons/hicolor/scalable/apps/<app-id>.svg` (preferred)
+- [x] Maintain and publish release screenshots:
+  - `assets/screenshots/idle.png`
+  - `assets/screenshots/recording.png`
+  - `assets/screenshots/config.png`
 - [ ] Validate metadata:
   - `desktop-file-validate packaging/linux/<app-id>.desktop`
   - `appstreamcli validate packaging/linux/<app-id>.metainfo.xml`
@@ -101,12 +107,15 @@ Missing for marketplace publishing:
 
 ## 7. COPR Checklist
 
-- [ ] Maintain a `.spec` file in repo (recommended: `packaging/rpm/voxy-app.spec`).
-- [ ] Build SRPM from tag/release source.
+- [x] Maintain a `.spec` file in repo (`packaging/rpm/voxy-app.spec`).
+- [x] Build SRPM from tag/release source.
+  - `just rpm-srpm ref=vX.Y.Z`
+  - or `./scripts/release/build-srpm.sh vX.Y.Z`
 - [ ] Create COPR project and enable chroots.
 - [ ] Submit build via CLI:
   - `copr-cli create ...`
-  - `copr-cli build <owner>/<project> <package.src.rpm>`
+  - `just copr-build <owner>/<project> vX.Y.Z`
+  - or `copr-cli build <owner>/<project> <package.src.rpm>`
 - [ ] Test install path on Fedora:
   - `sudo dnf copr enable <owner>/<project>`
   - `sudo dnf install voxy-app`

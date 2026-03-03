@@ -17,9 +17,32 @@ make target action:
       exec ./scripts/release/build-rpm.sh
     fi
 
+    if [[ "{{target}}" == "rpm" && "{{action}}" == "srpm" ]]; then
+      exec ./scripts/release/build-srpm.sh
+    fi
+
     echo "Unsupported make target: {{target}} {{action}}" >&2
-    echo "Usage: just make rpm package" >&2
+    echo "Usage: just make rpm package|srpm" >&2
     exit 1
+
+rpm-package:
+    ./scripts/release/build-rpm.sh
+
+rpm-srpm ref="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ref_name="{{ref}}"
+    ref_name="${ref_name#ref=}"
+    exec ./scripts/release/build-srpm.sh "${ref_name}"
+
+copr-build project ref="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    project_name="{{project}}"
+    project_name="${project_name#project=}"
+    ref_name="{{ref}}"
+    ref_name="${ref_name#ref=}"
+    exec ./scripts/release/copr-build.sh "${project_name}" "${ref_name}"
 
 validate: doctor
     cargo fmt --all -- --check
