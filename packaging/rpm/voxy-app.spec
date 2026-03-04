@@ -1,7 +1,7 @@
 %global app_id com.vince.voxy
 
 Name:           voxy-app
-Version:        %{!?pkg_version:1.0.0~RC2}%{?pkg_version}
+Version:        %{!?pkg_version:1.0.0~RC3}%{?pkg_version}
 Release:        %{!?pkg_release:1}%{?pkg_release}%{?dist}
 Summary:        Wayland-native GTK4 app for live transcription
 License:        MIT
@@ -45,6 +45,11 @@ VOXY_PACKAGING_VALIDATE_STRICT=1 ./scripts/release/validate-packaging.sh
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Tue Mar 03 2026 Vince Liem <vincepaul.liem@gmail.com> - 1.0.0~RC3-1
+- Add startup API key sanity logs (resolved/applied) with redacted source markers.
+- Make dotenv fallback launcher-safe by probing config directories when cwd lacks .env.
+- Harden dotenv scanning against directory-path edge cases.
+
 * Tue Mar 03 2026 Vince Liem <vincepaul.liem@gmail.com> - 1.0.0~RC2-1
 - Fix stop-path benign empty-buffer commit errors during silence-timeout flows.
 - Split realtime STT client into focused modules for maintainability.

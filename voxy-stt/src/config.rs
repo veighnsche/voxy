@@ -140,15 +140,61 @@ fn load_api_key_from_dotenv() -> Result<Option<ApiKeyConfig>, SttConfigError> {
         return Ok(None);
     }
 
-    let dotenv_dir = non_empty_env(DOTENV_DIR_ENV)
-        .map(PathBuf::from)
-        .or_else(|| env::current_dir().ok());
+    if let Some(dotenv_dir) = non_empty_env(DOTENV_DIR_ENV).map(PathBuf::from) {
+        return load_api_key_from_dotenv_dir(&dotenv_dir);
+    }
 
-    let Some(dotenv_dir) = dotenv_dir else {
-        return Ok(None);
+    load_api_key_from_dotenv_dirs(default_dotenv_dirs())
+}
+
+fn default_dotenv_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    push_unique_path(&mut dirs, env::current_dir().ok());
+    push_unique_path(&mut dirs, default_config_dir());
+    dirs
+}
+
+fn push_unique_path(dirs: &mut Vec<PathBuf>, candidate: Option<PathBuf>) {
+    let Some(candidate) = candidate else {
+        return;
     };
 
-    load_api_key_from_dotenv_dir(&dotenv_dir)
+    if !dirs.iter().any(|dir| dir == &candidate) {
+        dirs.push(candidate);
+    }
+}
+
+fn load_api_key_from_dotenv_dirs<I>(dirs: I) -> Result<Option<ApiKeyConfig>, SttConfigError>
+where
+    I: IntoIterator<Item = PathBuf>,
+{
+    for dotenv_dir in dirs {
+        if let Some(config) = load_api_key_from_dotenv_dir(&dotenv_dir)? {
+            return Ok(Some(config));
+        }
+    }
+
+    Ok(None)
+}
+
+fn default_config_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        return non_empty_env("APPDATA")
+            .map(PathBuf::from)
+            .map(|dir| dir.join("voxy"));
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Some(xdg) = non_empty_env("XDG_CONFIG_HOME") {
+            return Some(PathBuf::from(xdg).join("voxy"));
+        }
+
+        non_empty_env("HOME")
+            .map(PathBuf::from)
+            .map(|home| home.join(".config").join("voxy"))
+    }
 }
 
 fn load_api_key_from_dotenv_dir(dir: &Path) -> Result<Option<ApiKeyConfig>, SttConfigError> {
@@ -159,6 +205,9 @@ fn load_api_key_from_dotenv_dir(dir: &Path) -> Result<Option<ApiKeyConfig>, SttC
     for name in DOTENV_FILES {
         let path = dir.join(name);
         if !path.exists() {
+            continue;
+        }
+        if !path.is_file() {
             continue;
         }
 
@@ -324,7 +373,10 @@ mod tests {
 
     use crate::error::SttConfigError;
 
-    use super::{load_api_key_from_dotenv_dir, normalize_relative_path, parse_bool_env};
+    use super::{
+        load_api_key_from_dotenv_dir, load_api_key_from_dotenv_dirs, normalize_relative_path,
+        parse_bool_env, push_unique_path, ApiKeySource,
+    };
 
     fn test_dir(test_name: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -393,6 +445,77 @@ mod tests {
             .expect("dotenv load should not fail")
             .expect("api key config should be resolved");
         assert_eq!(config.api_key, "sk-test-key");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn push_unique_path_skips_none_and_duplicates() {
+        let mut dirs = Vec::new();
+        push_unique_path(&mut dirs, None);
+        push_unique_path(&mut dirs, Some(PathBuf::from("/tmp/voxy-config")));
+        push_unique_path(&mut dirs, Some(PathBuf::from("/tmp/voxy-config")));
+
+        assert_eq!(dirs, vec![PathBuf::from("/tmp/voxy-config")]);
+    }
+
+    #[test]
+    fn dotenv_fallback_uses_first_matching_directory() {
+        let first = test_dir("dotenv-fallback-first");
+        let second = test_dir("dotenv-fallback-second");
+
+        fs::create_dir_all(&first).expect("first fallback directory should be created");
+        fs::create_dir_all(&second).expect("second fallback directory should be created");
+        fs::write(first.join(".env"), "VOXY_OPENAI_API_KEY=sk-first\n")
+            .expect("first dotenv should be written");
+        fs::write(second.join(".env"), "VOXY_OPENAI_API_KEY=sk-second\n")
+            .expect("second dotenv should be written");
+
+        let config = load_api_key_from_dotenv_dirs(vec![first.clone(), second.clone()])
+            .expect("fallback lookup should not fail")
+            .expect("fallback should resolve an api key");
+
+        assert_eq!(config.api_key, "sk-first");
+        assert_eq!(
+            config.source,
+            ApiKeySource::DotenvVoxyEnv(first.join(".env"))
+        );
+
+        let _ = fs::remove_dir_all(&first);
+        let _ = fs::remove_dir_all(&second);
+    }
+
+    #[test]
+    fn dotenv_fallback_tries_next_directory_when_first_has_no_dotenv() {
+        let first = test_dir("dotenv-fallback-empty");
+        let second = test_dir("dotenv-fallback-next");
+
+        fs::create_dir_all(&first).expect("empty fallback directory should be created");
+        fs::create_dir_all(&second).expect("next fallback directory should be created");
+        fs::write(second.join(".env"), "VOXY_OPENAI_API_KEY=sk-next\n")
+            .expect("next dotenv should be written");
+
+        let config = load_api_key_from_dotenv_dirs(vec![first.clone(), second.clone()])
+            .expect("fallback lookup should not fail")
+            .expect("fallback should resolve an api key");
+
+        assert_eq!(config.api_key, "sk-next");
+        assert_eq!(
+            config.source,
+            ApiKeySource::DotenvVoxyEnv(second.join(".env"))
+        );
+
+        let _ = fs::remove_dir_all(&first);
+        let _ = fs::remove_dir_all(&second);
+    }
+
+    #[test]
+    fn dotenv_directory_named_env_is_ignored() {
+        let dir = test_dir("dotenv-dir-entry");
+        fs::create_dir_all(dir.join(".env")).expect("directory named .env should be created");
+
+        let config = load_api_key_from_dotenv_dir(&dir).expect("dotenv dir load should not fail");
+        assert!(config.is_none(), "directory named .env should be ignored");
 
         let _ = fs::remove_dir_all(&dir);
     }

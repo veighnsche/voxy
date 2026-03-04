@@ -57,7 +57,7 @@ You can tune live-text responsiveness with environment variables:
 - `VOXY_STT_RECONNECT_BASE_MS` (default `250`): initial reconnect backoff delay.
 - `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
 - `VOXY_STT_DOTENV_ENABLED` (default `true`): enable dotenv API key lookup.
-- `VOXY_STT_DOTENV_DIR` (default current working directory): dotenv search root for `.env` and `.env.local`.
+- `VOXY_STT_DOTENV_DIR` (default lookup order: current working directory, then `~/.config/voxy` on Linux or `%APPDATA%\\voxy` on Windows): dotenv search root for `.env` and `.env.local` when set; otherwise built-in fallback dirs are used.
 - `VOXY_AUDIO_FRAME_MS` (default `20`): CPAL frame duration per audio chunk.
 - `VOXY_MAX_RECORDING_SECONDS` (default `1800`): hard stop to prevent runaway recording sessions (`0` disables).
 - `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence auto-stop timeout shown in settings (`0` disables).

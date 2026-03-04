@@ -240,6 +240,57 @@ async fn run_reconnect_stop_flush_mock_server(listener: TcpListener, expected_mo
     let _ = time::timeout(Duration::from_secs(10), socket.next()).await;
 }
 
+async fn run_sanity_check_mock_server(listener: TcpListener, expected_model: &str) {
+    let (stream, _) = time::timeout(Duration::from_secs(3), listener.accept())
+        .await
+        .expect("timed out waiting for websocket client connection")
+        .expect("websocket client should connect");
+    let mut socket = accept_async(stream)
+        .await
+        .expect("websocket handshake should succeed");
+
+    let session_update = receive_client_event(&mut socket, "transcription_session.update").await;
+    assert_eq!(
+        session_update
+            .get("session")
+            .and_then(|session| session.get("input_audio_transcription"))
+            .and_then(|input| input.get("model"))
+            .and_then(Value::as_str),
+        Some(expected_model),
+        "start should configure the expected model",
+    );
+
+    if try_receive_client_event(
+        &mut socket,
+        "input_audio_buffer.commit",
+        Duration::from_secs(10),
+    )
+    .await
+    .is_some()
+    {
+        send_server_event(
+            &mut socket,
+            json!({
+                "type": "input_audio_buffer.committed",
+                "item_id": "item-stop",
+                "previous_item_id": null
+            }),
+        )
+        .await;
+        send_server_event(
+            &mut socket,
+            json!({
+                "type": "conversation.item.input_audio_transcription.completed",
+                "item_id": "item-stop",
+                "transcript": ""
+            }),
+        )
+        .await;
+    }
+
+    let _ = time::timeout(Duration::from_secs(10), socket.next()).await;
+}
+
 #[test]
 fn retry_classifier_marks_server_and_rate_limit_http_as_retryable() {
     let response_500 = Response::builder()
@@ -753,6 +804,79 @@ async fn stop_flush_survives_reconnect_and_ignores_stale_completion_integration(
         saw_session_stopped,
         "session should emit SessionStopped after stop"
     );
+}
+
+#[allow(clippy::await_holding_lock)]
+#[tokio::test(flavor = "current_thread")]
+async fn start_emits_api_key_sanity_messages() {
+    let _env_lock = ENV_LOCK.lock().expect("env lock should not be poisoned");
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock websocket listener should bind");
+    let ws_url = format!(
+        "ws://{}",
+        listener
+            .local_addr()
+            .expect("listener should have local address")
+    );
+    let _api_key = EnvVarGuard::set(VOXY_OPENAI_API_KEY_ENV, "sk-test");
+    let _realtime_url = EnvVarGuard::set(REALTIME_URL_ENV, &ws_url);
+
+    let (event_tx, mut event_rx) = mpsc::channel(64);
+    let transcriber = OpenAiRealtimeTranscriber::with_source_poll_interval(
+        event_tx,
+        None,
+        Duration::from_millis(10),
+    );
+    let config = TranscriberSessionConfig::from_model(TranscriptionModelId::Gpt4oMiniTranscribe);
+
+    let server = tokio::spawn(run_sanity_check_mock_server(
+        listener,
+        config.model.as_api_id(),
+    ));
+
+    time::timeout(Duration::from_secs(3), transcriber.start(config))
+        .await
+        .expect("transcriber start should not time out")
+        .expect("transcriber start should succeed");
+
+    let mut saw_resolved = false;
+    let mut saw_applied = false;
+    let deadline = time::Instant::now() + Duration::from_secs(3);
+    while time::Instant::now() < deadline && !(saw_resolved && saw_applied) {
+        let remaining = deadline.saturating_duration_since(time::Instant::now());
+        match time::timeout(remaining, event_rx.recv()).await {
+            Ok(Some(AppEvent::LogMessage(message))) => {
+                if message.starts_with("Sanity check: API key resolved (") {
+                    saw_resolved = true;
+                }
+                if message.starts_with("Sanity check: API key applied (") {
+                    saw_applied = true;
+                }
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+
+    assert!(
+        saw_resolved,
+        "expected resolved sanity message after start; got none"
+    );
+    assert!(
+        saw_applied,
+        "expected applied sanity message after websocket connect; got none"
+    );
+
+    time::timeout(Duration::from_secs(3), transcriber.stop())
+        .await
+        .expect("transcriber stop should not time out")
+        .expect("transcriber stop should succeed");
+    server
+        .await
+        .expect("mock websocket server task should complete");
 }
 
 #[test]

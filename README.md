@@ -112,10 +112,11 @@ VOXY_STT_BACKEND=dummy just gui
   - `VOXY_OPENAI_API_KEY`
   - `VOXY_OPENAI_API_KEY_FILE`
   - `OPENAI_API_KEY`
-  - `.env` / `.env.local` from `VOXY_STT_DOTENV_DIR` (or current working directory when unset)
+  - `.env` / `.env.local` from `VOXY_STT_DOTENV_DIR` (or default dirs when unset)
 - Dotenv loading can be disabled with `VOXY_STT_DOTENV_ENABLED=0`.
 - In dotenv files, `VOXY_OPENAI_API_KEY_FILE` must be a relative path inside the dotenv directory.
 - Missing key surfaces as a runtime error banner.
+- Startup emits redacted sanity logs when the key is resolved and when it is applied to a live websocket session.
 
 ## Runtime Configuration
 
@@ -131,7 +132,7 @@ Environment variables:
 - `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
 - `VOXY_STT_STOP_FLUSH_TIMEOUT_MS` (default `3000`): max wait for commit/completion flush after stop.
 - `VOXY_STT_DOTENV_ENABLED` (default `true`): enable `.env`/`.env.local` API key lookup.
-- `VOXY_STT_DOTENV_DIR` (default current working directory): directory scanned for `.env` and `.env.local`.
+- `VOXY_STT_DOTENV_DIR` (default lookup order: current working directory, then `~/.config/voxy` on Linux or `%APPDATA%\\voxy` on Windows): directory scanned for `.env` and `.env.local` when set; otherwise built-in fallback dirs are used.
 - `VOXY_AUDIO_FRAME_MS` (default `20`, allowed `5..=200`): capture frame size.
 - `VOXY_STT_VAD_SILENCE_MS` (default `1600`): initial VAD pause.
 - `VOXY_SILENCE_AUTO_STOP_SECONDS` (default `10`): initial silence timeout.

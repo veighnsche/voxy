@@ -9,7 +9,7 @@ Runtime callers use `voxy-stt::config::load_api_key()`.
 1. `VOXY_OPENAI_API_KEY`
 2. `VOXY_OPENAI_API_KEY_FILE` (file contents, trimmed)
 3. `OPENAI_API_KEY`
-4. `.env` / `.env.local` (in `VOXY_STT_DOTENV_DIR` or current working directory)
+4. `.env` / `.env.local` (in `VOXY_STT_DOTENV_DIR`, or fallback dirs: current working directory then `~/.config/voxy` on Linux / `%APPDATA%\\voxy` on Windows)
 
 Supported keys in dotenv files:
 - `VOXY_OPENAI_API_KEY`

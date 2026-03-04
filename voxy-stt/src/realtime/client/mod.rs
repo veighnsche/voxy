@@ -180,6 +180,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
         let api_key = load_api_key().map_err(|error| {
             TranscriberContractError::Internal(format!("failed to load API key: {error}"))
         })?;
+        let api_key_source = api_key.source.redacted_description().to_owned();
         ensure_rustls_provider()
             .map_err(|error| TranscriberContractError::Internal(error.to_owned()))?;
         let ws_url = realtime_url_from_env();
@@ -187,7 +188,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
             "start",
             format!(
                 "api_key_source={} ws_url={} model={} sample_rate={} channels={}",
-                api_key.source.redacted_description(),
+                api_key_source,
                 redact_ws_url_for_trace(&ws_url),
                 config.model.as_api_id(),
                 config.sample_rate_hz,
@@ -225,6 +226,7 @@ impl StreamingTranscriber for OpenAiRealtimeTranscriber {
                 stop_rx,
                 ws_url,
                 api_key.api_key,
+                api_key_source,
                 config,
                 source_poll_interval,
                 reconnect_config,
@@ -321,6 +323,7 @@ async fn run_session_with_reconnect(
     mut stop_rx: oneshot::Receiver<()>,
     ws_url: String,
     api_key: String,
+    api_key_source: String,
     config: TranscriberSessionConfig,
     source_poll_interval: Duration,
     reconnect_config: ReconnectConfig,
@@ -338,8 +341,14 @@ async fn run_session_with_reconnect(
                 .unwrap_or_else(|| "unlimited".to_owned())
         ),
     );
+    emit_log_message(
+        &tx,
+        format!("Sanity check: API key resolved ({api_key_source})"),
+    )
+    .await;
 
     let mut retry_attempt = 0u32;
+    let mut api_key_applied_logged = false;
     loop {
         let outcome = run_single_session_attempt(
             &tx,
@@ -351,6 +360,8 @@ async fn run_session_with_reconnect(
             &api_key,
             &config,
             source_poll_interval,
+            &api_key_source,
+            &mut api_key_applied_logged,
         )
         .await;
 
@@ -418,6 +429,8 @@ async fn run_single_session_attempt(
     api_key: &str,
     config: &TranscriberSessionConfig,
     source_poll_interval: Duration,
+    api_key_source: &str,
+    api_key_applied_logged: &mut bool,
 ) -> SessionAttemptOutcome {
     let stop_flush_timeout = stop_flush_timeout_from_env();
     let request = match build_request(ws_url, api_key) {
@@ -447,6 +460,14 @@ async fn run_single_session_attempt(
         }
     };
     trace::log("session", "websocket connected");
+    if !*api_key_applied_logged {
+        emit_log_message(
+            tx,
+            format!("Sanity check: API key applied ({api_key_source})"),
+        )
+        .await;
+        *api_key_applied_logged = true;
+    }
 
     let (mut writer, mut reader) = ws_stream.split();
 

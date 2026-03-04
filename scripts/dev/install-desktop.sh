@@ -16,6 +16,8 @@ bin_dir="${HOME}/.local/bin"
 apps_dir="${HOME}/.local/share/applications"
 icons_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 metainfo_dir="${HOME}/.local/share/metainfo"
+config_root="${XDG_CONFIG_HOME:-${HOME}/.config}"
+config_dir="${config_root}/voxy"
 installed_bin="${bin_dir}/${binary_name}"
 desktop_file="${apps_dir}/${app_id}.desktop"
 icon_file="${icons_dir}/${app_id}.svg"
@@ -31,7 +33,7 @@ if [[ ! -x "target/release/${binary_name}" ]]; then
   exit 1
 fi
 
-mkdir -p "${bin_dir}" "${apps_dir}" "${icons_dir}" "${metainfo_dir}"
+mkdir -p "${bin_dir}" "${apps_dir}" "${icons_dir}" "${metainfo_dir}" "${config_dir}"
 install -m 0755 "target/release/${binary_name}" "${installed_bin}"
 install -m 0644 "${repo_root}/assets/icons/hicolor/scalable/apps/${app_id}.svg" "${icon_file}"
 install -m 0644 "${metainfo_src}" "${metainfo_file}"
@@ -70,3 +72,5 @@ echo "Installed launcher: ${desktop_file}"
 echo "Installed icon: ${icon_file}"
 echo "Installed metainfo: ${metainfo_file}"
 echo "Desktop shortcut: ${desktop_shortcut}"
+echo "Launcher API key fallback dir: ${config_dir}"
+echo "Tip: place .env or .env.local in that directory for Start menu launches."

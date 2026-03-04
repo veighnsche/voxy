@@ -7,6 +7,19 @@ and this project adheres to Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.0-RC3] - 2026-03-03
+### Added
+- Startup sanity logs now confirm API key resolution and successful websocket application using redacted source labels.
+- Desktop installer output now prints the launcher-friendly dotenv fallback directory.
+
+### Changed
+- Dotenv lookup now falls back to stable config paths (`~/.config/voxy` on Linux, `%APPDATA%\\voxy` on Windows) when `VOXY_STT_DOTENV_DIR` is unset.
+- API key docs were updated to describe launcher-safe dotenv behavior and sanity signals.
+
+### Fixed
+- Dotenv scanning now ignores directory entries named `.env`/`.env.local` instead of surfacing read errors.
+- Added fallback-order regression coverage for dotenv directory selection.
+
 ## [1.0.0-RC2] - 2026-03-03
 ### Added
 - COPR publishing workflow/docs/`just` targets, including SRPM build and submit helpers.
