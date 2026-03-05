@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    env,
     rc::Rc,
     sync::Arc,
 };
@@ -23,6 +24,9 @@ use crate::{
 use super::{event_processing, input_meter_loop, settings_sync, ui_signals};
 
 const LAYER_SHELL_UNSUPPORTED_MESSAGE: &str = "Layer-shell unsupported on this compositor/session";
+const START_HIDDEN_ENV: &str = "VOXY_START_HIDDEN";
+const START_HIDDEN_TRAY_UNAVAILABLE_MESSAGE: &str =
+    "VOXY_START_HIDDEN is enabled but tray is unavailable; showing window instead";
 
 pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
     if let Some(existing_window) = app.windows().into_iter().next() {
@@ -180,7 +184,24 @@ pub(super) fn activate(app: &Application, runtime: Arc<Runtime>) {
         &layer_shell_backend,
         &applying_text_update,
     );
-    widgets.window.present();
+    if start_hidden_requested() {
+        if tray_available {
+            diagnostics::pipeline_trace::log(
+                "activate",
+                "VOXY_START_HIDDEN enabled: startup window remains hidden",
+            );
+            event_emit::emit_critical(&event_tx, AppEvent::HideRequested, "bootstrap.start_hidden");
+        } else {
+            event_emit::emit_critical(
+                &event_tx,
+                AppEvent::RuntimeError(START_HIDDEN_TRAY_UNAVAILABLE_MESSAGE.to_owned()),
+                "bootstrap.start_hidden_tray_unavailable",
+            );
+            widgets.window.present();
+        }
+    } else {
+        widgets.window.present();
+    }
 }
 
 pub(super) fn render_ui(
@@ -197,4 +218,14 @@ pub(super) fn render_ui(
         model.ui_prefs.window_left,
         model.ui_prefs.window_top,
     );
+}
+
+fn start_hidden_requested() -> bool {
+    env::var(START_HIDDEN_ENV)
+        .ok()
+        .map(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
 }

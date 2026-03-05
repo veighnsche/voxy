@@ -131,6 +131,7 @@ Environment variables:
 - `VOXY_STT_RECONNECT_BASE_MS` (default `250`): initial reconnect backoff delay.
 - `VOXY_STT_RECONNECT_MAX_MS` (default `5000`): reconnect backoff cap.
 - `VOXY_STT_STOP_FLUSH_TIMEOUT_MS` (default `3000`): max wait for commit/completion flush after stop.
+- `VOXY_START_HIDDEN` (`1/true/on`): start app hidden (tray icon only) when tray is available.
 - `VOXY_STT_DOTENV_ENABLED` (default `true`): enable `.env`/`.env.local` API key lookup.
 - `VOXY_STT_DOTENV_DIR` (default lookup order: current working directory, then `~/.config/voxy` on Linux or `%APPDATA%\\voxy` on Windows): directory scanned for `.env` and `.env.local` when set; otherwise built-in fallback dirs are used.
 - `VOXY_AUDIO_FRAME_MS` (default `20`, allowed `5..=200`): capture frame size.
