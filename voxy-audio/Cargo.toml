@@ -13,4 +13,4 @@ keywords = ["audio", "capture", "abstraction", "stt"]
 [dependencies]
 cpal = "0.15"
 minimp3 = "0.5"
-thiserror = "1.0"
+thiserror = "2.0"
